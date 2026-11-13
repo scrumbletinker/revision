@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline Dash</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .ev { font-size: 1.25rem; font-weight: 800; text-align: center; margin: 8px 0 14px; line-height: 1.35; }
+  .vs { text-align: center; font-weight: 900; color: var(--muted); margin: 6px 0; }
+  .order { display: flex; flex-direction: column; gap: 8px; }
+  .order .choice { display: flex; gap: 12px; align-items: center; }
+  .order .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; background: var(--surface-2); color: var(--muted); }
+  .order .choice.picked .num { background: var(--subj); color: #fff; }
+  .order .date { margin-left: auto; font-weight: 900; color: var(--subj); white-space: nowrap; }
+  .tl { list-style: none; padding: 0; margin: 10px 0 0; border-left: 4px solid var(--subj); }
+  .tl li { position: relative; padding: 4px 0 8px 16px; font-size: .92rem; }
+  .tl li::before { content: ''; position: absolute; left: -9px; top: 9px; width: 14px; height: 14px; border-radius: 50%; background: var(--subj); }
+  .tl b { color: var(--subj); }
+  .combo { font-weight: 900; color: var(--subj); }
+</style>
+</head>
+<body data-subject="history">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">History · Edexcel</div>
+    <h1>⏳ Timeline Dash</h1>
+    <p>10 quick questions: <b>put events in order</b>, <b>when did it happen?</b>, <b>before or after?</b>, <b>which period?</b> and <b>key terms</b>. In the exam, knowing the order of events is what lets you explain causes and consequences, and get the higher marks.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Unit</h3>
+    <div class="pills" id="units"></div>
+    <p class="small muted">These are the most common Edexcel units. If he's doing different ones, they can be swapped in <code>content/history.js</code>.</p>
+    <div style="margin-top:12px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip" id="prog"></span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/history.js"></script>
+<script>
+(function () {
+  const AID = 'history.timeline', SUBJ = 'history';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Timeline Dash' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle, pick } = GCSE;
+  const UNITS = window.HISTORY_UNITS;
+  let unitId = GCSE.state.histUnit || UNITS[0].id, g = null;
+
+  const ekey = (u, e) => `hist.${u.id}.ev.${e.id}`;
+  const tkey = (u, t) => `hist.${u.id}.term.${t[0].toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const yr = (e) => Math.floor(e.y);
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('units').innerHTML = UNITS.map((u) => {
+      const due = GCSE.dueCount(u.events.map((e) => ekey(u, e)).concat(u.terms.map((t) => tkey(u, t))));
+      return `<button class="pill ${u.id === unitId ? 'on' : ''}" data-id="${u.id}">${esc(u.title)} <span class="small">(${u.paper})</span>${due ? ` · ${due} due` : ''}</button>`;
+    }).join('');
+  }
+  $('units').addEventListener('click', (e) => { const b = e.target.closest('.pill'); if (b) { unitId = b.dataset.id; GCSE.state.histUnit = unitId; GCSE.save(); renderStart(); } });
+
+  // events with distinct years, so ordering questions are always fair
+  // picked from a cluster of nearby events, so it's a real test of chronology
+  function distinctYears(list, n) {
+    const out = [], used = new Set(), anchor = pick(list);
+    const byDist = list.slice().sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y));
+    for (const e of shuffle(byDist.slice(0, 9)).concat(byDist.slice(9))) { if (!used.has(yr(e))) { used.add(yr(e)); out.push(e); } if (out.length === n) break; }
+    return out;
+  }
+
+  function buildRound(u) {
+    const evIds = GCSE.pickItems(u.events.map((e) => ekey(u, e)), 6).map((k) => u.events.find((e) => ekey(u, e) === k));
+    const tIds = GCSE.pickItems(u.terms.map((t) => tkey(u, t)), 2).map((k) => u.terms.find((t) => tkey(u, t) === k));
+    const r = [];
+    r.push({ type: 'when', e: evIds[0] }, { type: 'when', e: evIds[1] });
+    r.push({ type: 'period', e: evIds[2] }, { type: 'period', e: evIds[3] });
+    r.push({ type: 'ba', e: evIds[4] }, { type: 'ba', e: evIds[5] });
+    r.push({ type: 'term', t: tIds[0] }, { type: 'term', t: tIds[1], rev: true });
+    const mixed = shuffle(r);
+    mixed.splice(3, 0, { type: 'order' });
+    mixed.push({ type: 'order' });
+    return mixed;
+  }
+
+  function start() {
+    const u = UNITS.find((x) => x.id === unitId);
+    g = { u, round: buildRound(u), i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [] };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    show();
+  }
+  const mult = () => (g.combo >= 3 ? 2 : 1);
+  function hud() {
+    $('prog').textContent = `${g.i + 1} / ${g.round.length}`;
+    $('score').textContent = g.score;
+    $('combo').textContent = g.combo >= 3 ? '🔥 ×2 combo' : `combo ${g.combo}/3`;
+  }
+  function show() {
+    $('fb').innerHTML = '';
+    hud();
+    const it = g.round[g.i];
+    ({ when: showWhen, period: showPeriod, ba: showBA, term: showTerm, order: showOrder })[it.type](it);
+  }
+
+  function result(ok, base, key, topicLabel, wrongText, why) {
+    const revenge = ok && key && GCSE.wasWrong(key);
+    if (key) GCSE.grade(key, ok);
+    GCSE.topic(`history.${g.u.id}.${topicLabel.id}`, `${g.u.short}: ${topicLabel.name}`, ok);
+    g.total++;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = base * mult() + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 2;
+      GCSE.sound('good');
+      $('fb').innerHTML = `<div class="feedback good">Correct! +${pts}${revenge ? ' 💥 revenge bonus' : ''}${why ? `<div class="why">${why}</div>` : ''}</div>`;
+    } else {
+      g.combo = 0;
+      GCSE.sound('bad');
+      $('fb').innerHTML = `<div class="feedback bad">${wrongText}${why ? `<div class="why">${why}</div>` : ''}</div>`;
+    }
+    hud(); nextBtn();
+  }
+  function nextBtn() {
+    $('fb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="next">${g.i + 1 < g.round.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('next').focus();
+    $('next').addEventListener('click', () => { g.i++; g.i < g.round.length ? show() : end(); });
+  }
+  function mcq(options, correct, onPick) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices" id="mc">${options.map((o) => `<button class="choice" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.dataset.v === correct) c.classList.add('correct'); });
+      const ok = b.dataset.v === correct;
+      if (!ok) b.classList.add('wrong');
+      onPick(ok);
+    });
+  }
+  const evWhy = (e) => `<b>${esc(e.date)}:</b> ${esc(e.text)}. ${esc(e.why)}`;
+  const miss = (e) => g.mistakes.push({ q: esc(e.text), a: esc(e.date), why: esc(e.why) });
+
+  // ---------- question types ----------
+  function showWhen(it) {
+    const e = it.e;
+    $('kind').textContent = 'When did it happen?';
+    $('body').innerHTML = `<div class="ev">${esc(e.text)}</div>`;
+    // distractors: nearby events with a different year
+    const near = g.u.events.filter((x) => yr(x) !== yr(e)).sort((a, b) => Math.abs(a.y - e.y) - Math.abs(b.y - e.y));
+    const labels = [];
+    for (const x of shuffle(near.slice(0, 7))) { if (!labels.includes(x.date) && labels.length < 3) labels.push(x.date); }
+    mcq(shuffle([e.date].concat(labels)), e.date, (ok) => {
+      if (!ok) miss(e);
+      result(ok, 10, ekey(g.u, e), { id: 'dates', name: 'dates' }, `It was <b>${esc(e.date)}</b>.`, evWhy(e));
+    });
+  }
+  function showPeriod(it) {
+    const e = it.e;
+    $('kind').textContent = 'Which period?';
+    $('body').innerHTML = `<div class="ev">${esc(e.text)}</div>`;
+    mcq(g.u.periods.slice(), g.u.periods[e.p], (ok) => {
+      if (!ok) miss(e);
+      result(ok, 10, ekey(g.u, e), { id: 'periods', name: 'periods' }, `It belongs in <b>${esc(g.u.periods[e.p])}</b>.`, evWhy(e));
+    });
+  }
+  function showBA(it) {
+    const e = it.e;
+    const others = g.u.events.filter((x) => yr(x) !== yr(e)).sort((a, b) => Math.abs(a.y - e.y) - Math.abs(b.y - e.y));
+    const ref = pick(others.slice(0, 5));
+    $('kind').textContent = 'Before or after?';
+    $('body').innerHTML = `<div class="ev">${esc(e.text)}</div><div class="vs">happened… </div>`;
+    const before = e.y < ref.y;
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices" id="mc"><button class="choice" data-v="before">⬅️ Before</button><button class="choice" data-v="after">After ➡️</button></div>
+      <div class="ev" style="font-size:1.05rem;margin-top:14px;font-weight:700">${esc(ref.text)}</div>`);
+    $('mc').addEventListener('click', (ev) => {
+      const b = ev.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      const right = before ? 'before' : 'after', ok = b.dataset.v === right;
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.dataset.v === right) c.classList.add('correct'); });
+      if (!ok) { b.classList.add('wrong'); miss(e); }
+      result(ok, 10, ekey(g.u, e), { id: 'chronology', name: 'chronology' }, `It was <b>${right}</b>.`,
+        `<ul class="tl">${[e, ref].sort((a, b) => a.y - b.y).map((x) => `<li><b>${esc(x.date)}</b> ${esc(x.text)}</li>`).join('')}</ul>`);
+    });
+  }
+  function showTerm(it) {
+    const t = it.t, others = shuffle(g.u.terms.filter((x) => x !== t)).slice(0, 3);
+    if (it.rev) {
+      $('kind').textContent = 'Key term · what does it mean?';
+      $('body').innerHTML = `<div class="ev">${esc(t[0])}</div>`;
+      mcq(shuffle([t[1]].concat(others.map((x) => x[1]))), t[1], (ok) => after(ok));
+    } else {
+      $('kind').textContent = 'Key term · name it';
+      $('body').innerHTML = `<div class="ev" style="font-size:1.1rem">${esc(t[1])}</div>`;
+      mcq(shuffle([t[0]].concat(others.map((x) => x[0]))), t[0], (ok) => after(ok));
+    }
+    function after(ok) {
+      if (!ok) g.mistakes.push({ q: esc(t[0]), a: esc(t[1]) });
+      result(ok, 10, tkey(g.u, t), { id: 'terms', name: 'key terms' }, `<b>${esc(t[0])}</b>: ${esc(t[1])}`, ok ? `<b>${esc(t[0])}</b>: ${esc(t[1])}` : '');
+    }
+  }
+  function showOrder() {
+    const evs = distinctYears(g.u.events, 4);
+    const sorted = evs.slice().sort((a, b) => a.y - b.y);
+    $('kind').textContent = 'Put them in order · tap the earliest first';
+    $('body').innerHTML = `<div class="order" id="ord">${evs.map((e, i) => `<button class="choice" data-i="${i}"><span class="num"></span><span>${esc(e.text)}</span></button>`).join('')}</div>
+      <div class="row" style="margin-top:10px"><button class="btn secondary" id="undo">↺ Start again</button></div>`;
+    const picks = [];
+    $('undo').addEventListener('click', () => { picks.length = 0; [...$('ord').children].forEach((c) => { c.classList.remove('picked'); c.querySelector('.num').textContent = ''; }); });
+    $('ord').addEventListener('click', (ev) => {
+      const b = ev.target.closest('.choice'); if (!b || b.disabled || b.classList.contains('picked')) return;
+      picks.push(+b.dataset.i);
+      b.classList.add('picked'); b.querySelector('.num').textContent = picks.length;
+      if (picks.length < evs.length) return;
+      $('undo').remove();
+      let right = 0;
+      [...$('ord').children].forEach((c) => {
+        c.disabled = true;
+        const i = +c.dataset.i, pos = picks.indexOf(i), ok = sorted[pos] === evs[i];
+        if (ok) right++;
+        c.classList.add(ok ? 'correct' : 'wrong');
+        c.insertAdjacentHTML('beforeend', `<span class="date">${esc(evs[i].date)}</span>`);
+      });
+      const all = right === evs.length;
+      evs.forEach((e) => { const ok = sorted[picks.indexOf(evs.indexOf(e))] === e; if (!ok) GCSE.grade(ekey(g.u, e), false); });
+      if (!all) g.mistakes.push({ q: 'Order: ' + sorted.map((e) => esc(e.text)).join(' → '), a: sorted.map((e) => esc(e.date)).join(' → ') });
+      // partial credit: 5 points per event in the right place, ×2 bonus if all correct
+      const base = all ? 20 : 0;
+      if (!all && right) { g.score += right * 5; }
+      result(all, base, null, { id: 'chronology', name: 'chronology' }, `${right}/4 in the right place${right ? ` (+${right * 5})` : ''}. Here's the correct order:`,
+        `<ul class="tl">${sorted.map((e) => `<li><b>${esc(e.date)}</b> ${esc(e.text)}</li>`).join('')}</ul>`);
+    });
+  }
+
+  function end() {
+    const d = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: d.score, correct: d.correct, total: d.total, xp: d.xp + 5, mistakes: d.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!g) return;
+    if (/^[1-4]$/.test(e.key) && $('mc')) { const c = $('mc').children[+e.key - 1]; c && c.click(); }
+  });
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

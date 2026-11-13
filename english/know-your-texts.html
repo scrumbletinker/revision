@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Know Your Texts</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .qtext { font-size: 1.2rem; font-weight: 700; line-height: 1.45; margin: 6px 0 14px; }
+  .qtext .clue { display: block; font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 1.12rem; border-left: 5px solid var(--subj); padding: 6px 0 6px 14px; margin-top: 10px; }
+  .choices .choice { text-align: left; }
+  .combo { font-weight: 900; color: var(--subj); }
+  .worth { font-size: .8rem; font-weight: 800; color: var(--subj); }
+</style>
+</head>
+<body data-subject="english">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">English Literature · AQA</div>
+    <h1>🧠 Know Your Texts</h1>
+    <p>10 quick questions on <b>poets</b>, <b>context</b>, <b>form</b>, <b>characters</b> and <b>themes</b>. Power and Conflict rounds always include <b>comparison picks</b>: choosing the right second poem is half the battle in Paper 2.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Which text?</h3>
+    <div class="pills" id="sets"></div>
+    <p class="small muted" id="note"></p>
+    <div style="margin-top:12px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip" id="prog"></span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/texts.js"></script>
+<script>
+(function () {
+  const AID = 'english.know', SUBJ = 'english';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Know Your Texts' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle } = GCSE;
+  const SETS = window.KNOW_TEXTS;
+  let setId = SETS[0].id, g = null;
+  try { const saved = localStorage.getItem('kyt-set'); if (SETS.some((s) => s.id === saved)) setId = saved; } catch (e) {}
+
+  const key = (s, it) => `know.${s.id}.${it.id}`;
+  const KIND = { poets: 'Who wrote it?', content: 'What is it about?', context: 'Context', form: 'Form and structure', comparing: 'Pick the comparison', characters: 'Characters', themes: 'Themes' };
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('sets').innerHTML = SETS.map((s) => {
+      const due = GCSE.dueCount(s.items.map((it) => key(s, it)));
+      return `<button class="pill ${s.id === setId ? 'on' : ''}" data-id="${s.id}">${s.icon} ${esc(s.title)}${due ? ` · ${due} due` : ''}</button>`;
+    }).join('');
+    $('note').textContent = SETS.find((s) => s.id === setId).note;
+  }
+  $('sets').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    setId = b.dataset.id;
+    try { localStorage.setItem('kyt-set', setId); } catch (err) {}
+    renderStart();
+  });
+
+  function buildRound(s) {
+    const cmp = s.items.filter((it) => it.topic === 'comparing');
+    const rest = s.items.filter((it) => it.topic !== 'comparing');
+    const find = (k) => s.items.find((it) => key(s, it) === k);
+    const nCmp = cmp.length ? 3 : 0;
+    const a = GCSE.pickItems(rest.map((it) => key(s, it)), 10 - nCmp).map(find);
+    const b = nCmp ? GCSE.pickItems(cmp.map((it) => key(s, it)), nCmp).map(find) : [];
+    const round = shuffle(a);
+    // spread the comparison questions through the round, with one at the end as a finale
+    b.forEach((it, i) => round.splice(i === b.length - 1 ? round.length : 2 + i * 3, 0, it));
+    return round;
+  }
+
+  function start() {
+    const s = SETS.find((x) => x.id === setId);
+    g = { s, round: buildRound(s), i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [] };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    show();
+  }
+  const mult = () => (g.combo >= 3 ? 2 : 1);
+  function hud() {
+    $('prog').textContent = `${g.i + 1} / ${g.round.length}`;
+    $('score').textContent = g.score;
+    $('combo').textContent = g.combo >= 3 ? '🔥 ×2 combo' : `combo ${g.combo}/3`;
+  }
+
+  function show() {
+    const it = g.round[g.i], worth = it.worth || 10;
+    $('fb').innerHTML = '';
+    hud();
+    $('kind').innerHTML = `${KIND[it.topic] || 'Question'} <span class="worth">· ${worth} pts</span>`;
+    $('body').innerHTML = `<div class="qtext">${it.q}</div><div class="choices" id="mc">${shuffle([it.a].concat(it.wrong)).map((o) => `<button class="choice">${esc(o)}</button>`).join('')}</div>`;
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.textContent === it.a) c.classList.add('correct'); });
+      const ok = b.textContent === it.a;
+      if (!ok) b.classList.add('wrong');
+      answer(it, ok, worth);
+    });
+  }
+
+  function answer(it, ok, worth) {
+    const k = key(g.s, it), revenge = ok && GCSE.wasWrong(k);
+    GCSE.grade(k, ok);
+    GCSE.topic(`english.${g.s.id}.${it.topic}`, `${g.s.title}: ${g.s.topics[it.topic]}`, ok);
+    g.total++;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = worth * mult() + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 2;
+      GCSE.sound('good');
+      $('fb').innerHTML = `<div class="feedback good">Correct! +${pts}${revenge ? ' 💥 includes a revenge bonus' : ''}<div class="why">${esc(it.why)}</div></div>`;
+    } else {
+      g.combo = 0;
+      GCSE.sound('bad');
+      $('fb').innerHTML = `<div class="feedback bad">The answer: ${esc(it.a)}<div class="why">${esc(it.why)}</div></div>`;
+      g.mistakes.push({ q: it.q.replace(/<br>/g, ' '), a: esc(it.a), why: esc(it.why) });
+    }
+    hud();
+    $('fb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="next">${g.i + 1 < g.round.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('next').focus();
+    $('next').addEventListener('click', () => { g.i++; g.i < g.round.length ? show() : end(); });
+  }
+
+  function end() {
+    const d = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: d.score, correct: d.correct, total: d.total, xp: d.xp, mistakes: d.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

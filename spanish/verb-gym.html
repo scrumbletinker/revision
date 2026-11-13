@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verb Gym</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .prompt { text-align: center; margin: 8px 0 14px; }
+  .prompt .inf { font-size: 1.9rem; font-weight: 900; color: var(--subj); }
+  .prompt .en { color: var(--muted); }
+  .prompt .tags { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+  .prompt .tag2 { background: var(--surface-2); border-radius: 999px; padding: 4px 12px; font-weight: 800; }
+  .prompt .tag2.p { background: var(--subj); color: #fff; }
+  .form { font-size: 2rem; font-weight: 900; text-align: center; color: var(--subj); margin: 10px 0 16px; }
+  .vt { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .95rem; }
+  .vt td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .vt td:first-child { color: var(--muted); width: 42%; }
+  .vt tr.hit td { background: var(--good-soft); font-weight: 800; }
+  .vt .end { color: var(--subj); font-weight: 800; }
+  .combo { font-weight: 900; color: var(--subj); }
+</style>
+</head>
+<body data-subject="spanish">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">Spanish · Verbs & tenses</div>
+    <h1>🏋️ Verb Gym</h1>
+    <p>2 minutes of verb reps. Mostly you'll <b>type the verb</b> (for example: <i>tener · yo · preterite</i> → <b>tuve</b>), plus some <b>spot the tense</b> and <b>who is it?</b> questions. Get it wrong and you'll see the full verb table. Using a range of tenses is how you get the top marks in speaking and writing.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Tenses <span class="small muted">(tap to switch on or off)</span></h3>
+    <div class="pills" id="tenses"></div>
+    <h3 style="margin-top:14px">Verbs</h3>
+    <div class="pills" id="verbset"></div>
+    <div style="margin-top:14px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip">⏱ <span id="time">120</span>s</span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="timerbar" id="tbar"><div></div></div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="verbs.js"></script>
+<script src="es-common.js"></script>
+<script>
+(function () {
+  const AID = 'spanish.verbs', SUBJ = 'spanish', SECS = 120;
+  GCSE.mountHeader({ subject: SUBJ, title: 'Verb Gym' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle, pick, rand } = GCSE;
+  const V = window.SpanishVerbs;
+  const TNAME = Object.fromEntries(V.TENSES.map((t) => [t.id, t]));
+  const IRREG = new Set(['ser', 'estar', 'ir', 'tener', 'hacer', 'poder', 'querer', 'decir', 'venir', 'poner', 'dar', 'saber', 'ver', 'salir']);
+  const SETS = [
+    { id: 'mixed', name: '🎲 Mixed' },
+    { id: 'irregular', name: '💪 Irregulars only' },
+    { id: 'regular', name: '✅ Regular + stem-changers' }
+  ];
+
+  // saved choices
+  let chosen = (GCSE.state.esTenses && GCSE.state.esTenses.length) ? GCSE.state.esTenses.slice() : ['present', 'preterite', 'near'];
+  let setId = GCSE.state.esVerbSet || 'mixed';
+  let g = null;
+
+  const key = (v, t) => `es.verb.${v.inf}.${t}`;
+  function verbs() {
+    if (setId === 'irregular') return V.VERBS.filter((v) => IRREG.has(v.inf));
+    if (setId === 'regular') return V.VERBS.filter((v) => !IRREG.has(v.inf));
+    return V.VERBS;
+  }
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    const weak = new Set(GCSE.weakTopics('spanish.tense.', 10).map((w) => w.id.split('.').pop()));
+    $('tenses').innerHTML = V.TENSES.map((t) =>
+      `<button class="pill ${chosen.includes(t.id) ? 'on' : ''}" data-id="${t.id}" title="${esc(t.hint)}">${t.name}${weak.has(t.id) ? '<span class="tag">weak</span>' : ''}</button>`).join('') +
+      `<p class="small muted" style="width:100%;margin:6px 0 0">${chosen.map((id) => `<b>${TNAME[id].name}</b>: ${esc(TNAME[id].hint)}`).join(' · ')}</p>`;
+    $('verbset').innerHTML = SETS.map((s) => `<button class="pill ${s.id === setId ? 'on' : ''}" data-id="${s.id}">${s.name}</button>`).join('');
+  }
+  $('tenses').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    const id = b.dataset.id;
+    if (chosen.includes(id)) { if (chosen.length === 1) { GCSE.toast('Keep at least one tense on'); return; } chosen = chosen.filter((x) => x !== id); }
+    else chosen.push(id);
+    chosen = V.TENSES.map((t) => t.id).filter((x) => chosen.includes(x));
+    GCSE.state.esTenses = chosen; GCSE.save();
+    renderStart();
+  });
+  $('verbset').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    setId = b.dataset.id; GCSE.state.esVerbSet = setId; GCSE.save(); renderStart();
+  });
+
+  function allIds() { const out = []; verbs().forEach((v) => chosen.forEach((t) => out.push(key(v, t)))); return out; }
+  const lookup = {};
+  V.VERBS.forEach((v) => V.TENSES.forEach((t) => { lookup[key(v, t.id)] = { v, t: t.id }; }));
+
+  function person() {
+    // vosotros is used less in GCSE exams, so it comes up less often
+    const w = [3, 3, 3, 3, 1, 3], tot = w.reduce((a, b) => a + b, 0);
+    let r = Math.random() * tot;
+    for (let i = 0; i < 6; i++) { r -= w[i]; if (r < 0) return i; }
+    return 0;
+  }
+
+  function start() {
+    g = { queue: GCSE.pickItems(allIds(), 50), i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [], busy: false, over: false };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    const bar = $('tbar');
+    g.timer = GCSE.timer(SECS, (left, frac) => {
+      $('time').textContent = Math.ceil(left);
+      bar.firstElementChild.style.width = (frac * 100) + '%';
+      bar.classList.toggle('low', left < 15);
+    }, end);
+    next();
+  }
+  const mult = () => Math.min(3, 1 + Math.floor(g.combo / 3));
+  function hud() {
+    $('score').textContent = g.score;
+    $('combo').textContent = mult() > 1 ? `🔥 ×${mult()} combo` : `combo ${g.combo % 3}/3`;
+  }
+
+  function next() {
+    if (g.over) return;
+    if (g.i >= g.queue.length) g.queue = g.queue.concat(GCSE.pickItems(allIds(), 50));
+    const item = lookup[g.queue[g.i++]];
+    const q = { v: item.v, t: item.t, p: person() };
+    q.form = V.conj(q.v, q.t, q.p);
+    g.busy = false;
+    $('fb').innerHTML = '';
+    hud();
+    const r = Math.random();
+    if (r < 0.15 && chosen.length >= 2) spotTense(q);
+    else if (r < 0.27) whoIsIt(q);
+    else typeIt(q);
+  }
+
+  // ---------- question types ----------
+  function typeIt(q) {
+    $('kind').textContent = 'Type the verb';
+    $('body').innerHTML = `<div class="prompt"><div class="inf">${esc(q.v.inf)}</div><div class="en">${esc(q.v.en)}</div>
+      <div class="tags"><span class="tag2 p">${esc(V.PERSONS[q.p])}</span><span class="tag2">${esc(TNAME[q.t].name)}</span></div>
+      <div class="small muted" style="margin-top:6px">${esc(V.PERSON_EN[q.p])} · ${esc(TNAME[q.t].hint)}</div></div>
+      <form id="tf" class="row" style="flex-wrap:nowrap" autocomplete="off"><input class="answer" id="tin" placeholder="${q.t === 'near' || q.t === 'perfect' ? 'two or three words…' : 'one word…'}" autocapitalize="off" autocorrect="off" spellcheck="false" lang="es"><button class="btn" style="flex:none">✓</button></form>`;
+    $('tf').after(ES.accentKeys($('tin')));
+    $('tin').focus();
+    $('tf').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = $('tin').value.trim();
+      if (g.busy || !val) return;
+      g.busy = true; $('tin').disabled = true;
+      // allow the pronoun to be typed in front ("yo tuve")
+      const typed = val.replace(/^(yo|tú|tu|él|el|ella|nosotros|nosotras|vosotros|vosotras|ellos|ellas)\s+/i, '');
+      const res = V.check(typed, q.form);
+      if (res === 'accent') {
+        answer(q, 'accent', `Nearly! Watch the accent: <b>${esc(q.form)}</b>. In Spanish an accent can change the meaning (hablo = I speak, habló = he spoke).`);
+      } else answer(q, res === 'right' ? 'right' : 'wrong');
+    });
+  }
+  function mcq(options, correct, onPick) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices" id="mc">${options.map((o) => `<button class="choice" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || g.busy) return;
+      g.busy = true;
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.dataset.v === correct) c.classList.add('correct'); });
+      const ok = b.dataset.v === correct;
+      if (!ok) b.classList.add('wrong');
+      onPick(ok);
+    });
+  }
+  function spotTense(q) {
+    // pick a person whose form is unique across the chosen tenses, so there's only one right answer
+    const forms = (p) => chosen.map((t) => V.conj(q.v, t, p));
+    let p = q.p, tries = 0;
+    while (forms(p).filter((f) => f === V.conj(q.v, q.t, p)).length > 1 && tries++ < 10) p = rand(0, 5);
+    if (forms(p).filter((f) => f === V.conj(q.v, q.t, p)).length > 1) return typeIt(q);
+    q.p = p; q.form = V.conj(q.v, q.t, p);
+    $('kind').textContent = 'Spot the tense';
+    $('body').innerHTML = `<div class="form">${esc(q.form)}</div><p style="text-align:center;margin-top:-8px" class="muted">from <b>${esc(q.v.inf)}</b> (${esc(q.v.en)}). Which tense is it?</p>`;
+    const opts = shuffle([q.t].concat(shuffle(chosen.filter((t) => t !== q.t)).slice(0, 3))).map((t) => TNAME[t].name);
+    mcq(opts, TNAME[q.t].name, (ok) => answer(q, ok ? 'right' : 'wrong'));
+  }
+  function whoIsIt(q) {
+    // avoid tenses where yo and él share a form (imperfect, conditional) unless the person is unambiguous
+    const tab = V.table(q.v, q.t);
+    if (tab.filter((f) => f === q.form).length > 1) return typeIt(q);
+    $('kind').textContent = 'Who is it?';
+    $('body').innerHTML = `<div class="form">${esc(q.form)}</div><p style="text-align:center;margin-top:-8px" class="muted">${esc(q.v.inf)} · ${esc(TNAME[q.t].name)}. Who is doing it?</p>`;
+    const opts = shuffle([q.p].concat(shuffle([0, 1, 2, 3, 4, 5].filter((p) => p !== q.p)).slice(0, 3))).map((p) => V.PERSONS[p]);
+    mcq(opts, V.PERSONS[q.p], (ok) => answer(q, ok ? 'right' : 'wrong'));
+  }
+
+  // ---------- verb table (shown on mistakes) ----------
+  function tableHTML(q) {
+    const rows = V.PERSONS.map((pn, p) => {
+      const f = V.conj(q.v, q.t, p), parts = V.parts(q.v, q.t, p);
+      const shown = parts ? `${esc(parts[0])}<span class="end">${esc(parts[1])}</span>` : `<b>${esc(f)}</b>`;
+      return `<tr class="${p === q.p ? 'hit' : ''}"><td>${esc(pn)}</td><td>${shown}</td></tr>`;
+    }).join('');
+    const irr = V.isIrregular(q.v, q.t, q.p);
+    return `<table class="vt">${rows}</table>
+      <p class="small" style="margin:8px 0 0"><b>Rule:</b> ${esc(V.ruleText(q.v, q.t))}${irr && q.v.note ? `<br><b>⚠️ Irregular:</b> ${esc(q.v.note)}` : ''}</p>`;
+  }
+
+  // ---------- scoring ----------
+  function answer(q, res, note) {
+    const k = key(q.v, q.t), ok = res === 'right';
+    const revenge = ok && GCSE.wasWrong(k);
+    GCSE.grade(k, ok);
+    GCSE.topic('spanish.tense.' + q.t, 'Spanish: ' + TNAME[q.t].name.toLowerCase() + ' tense', ok);
+    if (IRREG.has(q.v.inf)) GCSE.topic('spanish.irregular', 'Spanish: irregular verbs', ok);
+    g.total++;
+    const irrBonus = V.isIrregular(q.v, q.t, q.p) ? 5 : 0;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = (10 + irrBonus) * mult() + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 2;
+      GCSE.sound('good');
+      ES.say(q.form);
+      $('fb').innerHTML = `<div class="feedback good">¡Correcto! +${pts}${irrBonus ? ' (irregular bonus)' : ''}${revenge ? ' 💥 revenge bonus' : ''}<div class="why"><b>${esc(V.PERSONS[q.p].split(' /')[0])} ${esc(q.form)}</b></div></div>`;
+      hud();
+      setTimeout(next, 650);
+      return;
+    }
+    g.combo = 0;
+    g.timer.pause();
+    let pts = 0;
+    if (res === 'accent') { pts = 5; g.score += pts; GCSE.sound('tick'); } else GCSE.sound('bad');
+    ES.say(q.form);
+    $('fb').innerHTML = `<div class="feedback bad">${res === 'accent' ? `${note} +${pts}` : `The answer: <b>${esc(q.form)}</b>`}
+      <div class="why">${tableHTML(q)}</div>
+      <div class="why small muted" style="margin-top:6px">The clock is paused while you read this.</div></div>
+      <div class="row" style="margin-top:10px"><button class="btn" id="nx">Next →</button></div>`;
+    g.mistakes.push({ q: `${esc(q.v.inf)} · ${esc(V.PERSONS[q.p])} · ${esc(TNAME[q.t].name)}`, a: esc(q.form), why: esc(V.ruleText(q.v, q.t)) });
+    hud();
+    $('nx').focus();
+    $('nx').addEventListener('click', () => { g.timer.resume(); next(); });
+  }
+
+  function end() {
+    if (g.over) return;
+    g.over = true; g.busy = true;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: g.score, correct: g.correct, total: g.total, xp: g.xp + 5, mistakes: g.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!g || g.over) return;
+    if (/^[1-4]$/.test(e.key) && $('mc') && document.activeElement.tagName !== 'INPUT') {
+      const c = $('mc').children[+e.key - 1]; c && c.click();
+    }
+  });
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equation Balancer</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .eqrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin: 10px 0 18px; }
+  .species { display: flex; flex-direction: column; align-items: center; background: var(--surface-2); border-radius: 14px; padding: 6px 8px; min-width: 74px; }
+  .species button { border: 0; background: var(--surface); color: var(--text); font-size: 1.1rem; font-weight: 900; width: 44px; height: 34px; border-radius: 9px; cursor: pointer; }
+  .species button:active { transform: scale(.94); }
+  .species .coef { font-size: 1.5rem; font-weight: 900; color: var(--subj); min-height: 1.6rem; }
+  .species .coef.one { color: var(--muted); opacity: .5; }
+  .species .f { font-size: 1.35rem; font-weight: 800; margin: 2px 0; white-space: nowrap; }
+  .op { font-size: 1.5rem; font-weight: 900; color: var(--muted); }
+  .tally { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
+  .tally td { padding: 6px 8px; background: var(--surface-2); vertical-align: middle; }
+  .tally td:first-child { border-radius: 10px 0 0 10px; font-weight: 900; width: 46px; text-align: center; }
+  .tally td:last-child { border-radius: 0 10px 10px 0; width: 36px; text-align: center; font-size: 1.1rem; }
+  .tally .n { font-weight: 900; width: 30px; text-align: center; }
+  .dots { display: flex; flex-wrap: wrap; gap: 3px; }
+  .dots i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: var(--c); }
+  .tally tr.ok td { background: var(--good-soft); }
+  .side { font-size: .75rem; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+</style>
+</head>
+<body data-subject="science">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">Chemistry · Balancing equations</div>
+    <h1>⚖️ Equation Balancer</h1>
+    <p>Tap <b>▲ ▼</b> to change the big numbers in front of each formula until every atom balances on both sides. The atom counter shows you how you're doing. Use as few taps as you can for full points.</p>
+    <div class="tip"><b>Remember:</b> you can only change the big numbers in front. Never change the little ones (subscripts), because that changes the substance!</div>
+    <div class="row small" id="targets" style="margin-top:12px"></div>
+    <h3 style="margin-top:14px">Difficulty</h3>
+    <div class="pills" id="levels">
+      <button class="pill on" data-l="mix">Mixed (gets harder)</button>
+      <button class="pill" data-l="1">Easy</button>
+      <button class="pill" data-l="2">Medium</button>
+      <button class="pill" data-l="3">Hard</button>
+    </div>
+    <div style="margin-top:18px"><button class="btn block" id="go">Start: 5 equations ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden">
+    <div class="hud"><span class="chip" id="prog"></span><span class="chip" id="lvl"></span><span class="spacer"></span><span class="chip">⭐ <span id="score">0</span></span></div>
+    <div class="card">
+      <div class="kicker" id="ename"></div>
+      <div class="eqrow" id="eqrow"></div>
+      <table class="tally" id="tally"></table>
+      <div id="fb"></div>
+      <div class="row" style="margin-top:12px" id="actions">
+        <button class="btn secondary" id="hint">💡 Hint (−5)</button>
+        <button class="btn secondary" id="reveal">Show answer</button>
+        <span class="spacer"></span>
+        <span class="small muted" id="taps"></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/equations.js"></script>
+<script src="chem.js"></script>
+<script>
+(function () {
+  const AID = 'science.balancer', SUBJ = 'science';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Equation Balancer' });
+  const $ = (id) => document.getElementById(id);
+  const EQ = window.EQUATIONS;
+  const COLORS = { H: '#9aa4b8', O: '#e04848', C: '#3b3b46', N: '#3d6ee0', Cl: '#3fbf4a', Na: '#a35be0', Mg: '#d9a520', Ca: '#8bc34a', Fe: '#c76a2c', Al: '#8fa7c2', Cu: '#d4793a', Zn: '#7d8b99', K: '#b06ce6', Li: '#e66cb0', S: '#e8d23a' };
+  let level = 'mix', g = null;
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '') +
+      `<span class="chip">📅 ${GCSE.dueCount(EQ.map((e) => 'eq.' + e.id))} due for review</span>`;
+  }
+  $('levels').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    level = b.dataset.l;
+    [...$('levels').children].forEach((x) => x.classList.toggle('on', x === b));
+  });
+
+  function chooseSet() {
+    if (level !== 'mix') {
+      const pool = EQ.filter((e) => String(e.level) === level).map((e) => 'eq.' + e.id);
+      return GCSE.pickItems(pool, 5).map((k) => EQ.find((e) => 'eq.' + e.id === k));
+    }
+    // 2 easy, 2 medium, 1 hard, in that order
+    const by = (l, n) => GCSE.pickItems(EQ.filter((e) => e.level === l).map((e) => 'eq.' + e.id), n).map((k) => EQ.find((e) => 'eq.' + e.id === k));
+    return by(1, 2).concat(by(2, 2), by(3, 1));
+  }
+
+  function start() {
+    g = { set: chooseSet(), i: 0, score: 0, correct: 0, xp: 0, mistakes: [] };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden');
+    load();
+  }
+  function load() {
+    const e = g.set[g.i];
+    const p = Chem.parseEquation(e.eq);
+    const sol = Chem.solve(p);
+    g.cur = { e, p, sol, coefs: p.all.map(() => 1), taps: 0, minTaps: sol.reduce((a, b) => a + b - 1, 0), hint: false, done: false };
+    $('prog').textContent = `${g.i + 1} / ${g.set.length}`;
+    $('lvl').textContent = ['', 'Easy', 'Medium', 'Hard'][e.level];
+    $('ename').textContent = e.name;
+    $('fb').innerHTML = '';
+    $('hint').disabled = false; $('reveal').disabled = false;
+    $('actions').classList.remove('hidden');
+    draw();
+  }
+
+  function draw() {
+    const c = g.cur, p = c.p;
+    let html = '';
+    p.all.forEach((f, idx) => {
+      if (idx === p.left.length) html += '<span class="op">→</span>';
+      else if (idx > 0) html += '<span class="op">+</span>';
+      html += `<div class="species">
+        <button data-i="${idx}" data-d="1" aria-label="More ${f}" ${c.done ? 'disabled' : ''}>▲</button>
+        <div class="coef ${c.coefs[idx] === 1 ? 'one' : ''}">${c.coefs[idx]}</div>
+        <div class="f">${Chem.formulaHTML(f)}</div>
+        <button data-i="${idx}" data-d="-1" aria-label="Fewer ${f}" ${c.done ? 'disabled' : ''}>▼</button>
+      </div>`;
+    });
+    $('eqrow').innerHTML = html;
+    const t = Chem.tally(p, c.coefs);
+    const dots = (n, el) => n > 24 ? `<b>${n}</b>` : `<span class="dots">${'<i></i>'.repeat(n)}</span>`;
+    $('tally').innerHTML = `<tr><td class="side">Atom</td><td class="side" colspan="2">Left side</td><td class="side" colspan="2">Right side</td><td></td></tr>` +
+      t.map((r) => `<tr class="${r.left === r.right ? 'ok' : ''}" style="--c:${COLORS[r.el] || '#888'}">
+        <td>${r.el}</td><td class="n">${r.left}</td><td>${dots(r.left)}</td><td class="n">${r.right}</td><td>${dots(r.right)}</td>
+        <td>${r.left === r.right ? '✅' : '❌'}</td></tr>`).join('');
+    $('taps').textContent = `Taps: ${c.taps}`;
+  }
+
+  $('eqrow').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b || g.cur.done) return;
+    const i = +b.dataset.i, d = +b.dataset.d, c = g.cur;
+    const nv = c.coefs[i] + d;
+    if (nv < 1 || nv > 12) return;
+    c.coefs[i] = nv; c.taps++;
+    GCSE.sound('tick');
+    draw();
+    if (Chem.isBalanced(c.p, c.coefs)) {
+      if (Chem.isLowest(c.coefs)) solved();
+      else $('fb').innerHTML = `<div class="feedback bad">It balances, but use the <b>smallest</b> whole numbers. Every number here can be divided by the same amount.</div>`;
+    } else $('fb').innerHTML = '';
+  });
+
+  function solved() {
+    const c = g.cur; c.done = true;
+    const extra = Math.max(0, c.taps - c.minTaps);
+    const key = 'eq.' + c.e.id;
+    const revenge = !c.hint && GCSE.wasWrong(key);
+    let pts = Math.max(6, 10 + 5 * c.e.level - extra) - (c.hint ? 5 : 0) + (revenge ? 5 : 0);
+    pts = Math.max(3, pts);
+    g.score += pts; g.correct++; g.xp += 2 + c.e.level;
+    GCSE.grade(key, !c.hint);
+    GCSE.topic('science.balancing', 'Balancing equations', !c.hint);
+    GCSE.sound('good');
+    draw();
+    $('score').textContent = g.score;
+    $('actions').classList.add('hidden');
+    $('fb').innerHTML = `<div class="feedback good">⚖️ Balanced! +${pts} points${extra === 0 ? ' with perfect taps!' : ` (${extra} extra tap${extra === 1 ? '' : 's'})`}${revenge ? ' 💥 Revenge bonus +5!' : ''}
+      <div class="why">${equationText(c.p, c.coefs)}</div></div>` + nextBtn();
+    bindNext();
+  }
+  function equationText(p, coefs) {
+    return p.all.map((f, i) => (i === p.left.length ? ' → ' : i ? ' + ' : '') + (coefs[i] > 1 ? coefs[i] : '') + Chem.formulaHTML(f)).join('');
+  }
+  const nextBtn = () => `<div class="row" style="margin-top:10px"><button class="btn" id="next">${g.i + 1 < g.set.length ? 'Next equation →' : 'Finish'}</button></div>`;
+  function bindNext() {
+    $('next').focus();
+    $('next').addEventListener('click', () => { g.i++; g.i < g.set.length ? load() : end(); });
+  }
+
+  $('hint').addEventListener('click', () => {
+    const c = g.cur; if (c.done) return;
+    c.hint = true; $('hint').disabled = true;
+    // find the first species whose coefficient is wrong and say what it should be
+    const idx = c.sol.findIndex((v, i) => v !== c.coefs[i]);
+    const f = c.p.all[idx >= 0 ? idx : 0];
+    $('fb').innerHTML = `<div class="tip"><b>Hint:</b> The number in front of <b>${Chem.formulaHTML(f)}</b> should be <b>${c.sol[idx >= 0 ? idx : 0]}</b>. Tip: leave elements on their own (like O<sub>2</sub> or H<sub>2</sub>) until last.</div>`;
+  });
+  $('reveal').addEventListener('click', () => {
+    const c = g.cur; if (c.done) return;
+    c.done = true; c.coefs = c.sol.slice();
+    GCSE.grade('eq.' + c.e.id, false);
+    GCSE.topic('science.balancing', 'Balancing equations', false);
+    GCSE.sound('bad');
+    g.mistakes.push({ q: c.e.name, a: equationText(c.p, c.sol), why: 'This one will come back soon for another go.' });
+    draw();
+    $('actions').classList.add('hidden');
+    $('fb').innerHTML = `<div class="feedback bad">Here's the answer: <span style="font-size:1.15rem">${equationText(c.p, c.sol)}</span><div class="why">Check the atom counter: every row is now equal.</div></div>` + nextBtn();
+    bindNext();
+  });
+
+  function end() {
+    const done = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: done.score, correct: done.correct, total: done.set.length, xp: done.xp, mistakes: done.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

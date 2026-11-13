@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physics Calc Gym</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .qtext { font-size: 1.2rem; font-weight: 800; margin: 6px 0 12px; line-height: 1.4; }
+  .given { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .given .g { background: var(--surface-2); border-radius: 10px; padding: 8px 12px; font-weight: 700; }
+  .given .g .sym { color: var(--subj); font-weight: 900; margin-right: 4px; }
+  .given .g.conv { outline: 2px dashed var(--warn); }
+  .ansrow { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
+  .ansrow .answer { flex: 1; min-width: 0; }
+  .ansrow .unit { font-weight: 800; white-space: nowrap; }
+  .work { margin: 8px 0 0; padding-left: 20px; }
+  .work li { margin-bottom: 4px; }
+  .eqbig { font-size: 1.15rem; font-weight: 800; }
+  .choices.one { grid-template-columns: 1fr; }
+  .combo { font-weight: 900; color: var(--subj); }
+</style>
+</head>
+<body data-subject="science">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">AQA Physics · Equations you must learn</div>
+    <h1>🧮 Physics Calc Gym</h1>
+    <p>Endless calculations using the <b>23 equations AQA expects you to remember</b>. Each round has 7 calculations, 2 "which equation?" and 1 "what's the unit?". Watch out for <b>unit traps</b> (minutes, grams, cm, kJ, mA): convert to SI units first, just like in the exam.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Topics</h3>
+    <div class="pills" id="groups"></div>
+    <p class="small muted">Answers within 2% count, so rounding is fine. Stuck? A hint shows the equation, for half points.</p>
+    <div style="margin-top:12px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip" id="prog"></span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="phys-eq.js"></script>
+<script>
+(function () {
+  const AID = 'science.calcgym', SUBJ = 'science';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Physics Calc Gym' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle, pick } = GCSE;
+  const { EQS, GROUPS, make, check, fmt } = window.PhysEq;
+  const key = (eq) => `phys.eq.${eq.id}`;
+  let groups = Object.keys(GROUPS), g = null;
+  try { const s = JSON.parse(localStorage.getItem('cg-groups')); if (Array.isArray(s) && s.length) groups = s.filter((x) => GROUPS[x]); } catch (e) {}
+  if (!groups.length) groups = Object.keys(GROUPS);
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('groups').innerHTML = Object.entries(GROUPS).map(([id, name]) => {
+      const ids = EQS.filter((e) => e.group === id).map(key);
+      const due = GCSE.dueCount(ids);
+      const acc = GCSE.topicAccuracy ? GCSE.topicAccuracy('science.phys.' + id) : null;
+      const weak = acc !== null && acc !== undefined && acc < 0.6;
+      return `<button class="pill ${groups.includes(id) ? 'on' : ''}" data-id="${id}">${name}${due ? ` · ${due} due` : ''}${weak ? ' <span class="tag">weak</span>' : ''}</button>`;
+    }).join('');
+  }
+  $('groups').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    const id = b.dataset.id;
+    if (groups.includes(id)) { if (groups.length > 1) groups = groups.filter((x) => x !== id); else GCSE.toast('Pick at least one topic'); }
+    else groups.push(id);
+    try { localStorage.setItem('cg-groups', JSON.stringify(groups)); } catch (err) {}
+    renderStart();
+  });
+
+  function buildRound() {
+    const pool = EQS.filter((e) => groups.includes(e.group));
+    const find = (k) => EQS.find((e) => key(e) === k);
+    const calcs = [];
+    while (calcs.length < 7) calcs.push(...GCSE.pickItems(pool.map(key), Math.min(7 - calcs.length, pool.length)).map(find));
+    const r = calcs.map((eq) => ({ type: 'calc', eq }));
+    const others = shuffle(pool);
+    r.splice(2, 0, { type: 'which', eq: others[0] });
+    r.splice(6, 0, { type: 'which', eq: others[1 % others.length] });
+    r.splice(4, 0, { type: 'unit', eq: others[2 % others.length] });
+    return r;
+  }
+
+  function start() {
+    g = { round: buildRound(), i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [] };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    show();
+  }
+  const mult = () => (g.combo >= 3 ? 2 : 1);
+  function hud() {
+    $('prog').textContent = `${g.i + 1} / ${g.round.length}`;
+    $('score').textContent = g.score;
+    $('combo').textContent = g.combo >= 3 ? '🔥 ×2 combo' : `combo ${g.combo}/3`;
+  }
+  function show() {
+    $('fb').innerHTML = '';
+    hud();
+    const it = g.round[g.i];
+    ({ calc: showCalc, which: showWhich, unit: showUnit })[it.type](it);
+  }
+
+  function finish(it, ok, base, wrongHtml, whyHtml, mistake) {
+    const k = key(it.eq), revenge = ok && GCSE.wasWrong(k);
+    GCSE.grade(k, ok);
+    GCSE.topic('science.phys.' + it.eq.group, 'Physics calculations: ' + GROUPS[it.eq.group].toLowerCase(), ok);
+    g.total++;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = Math.round(base * mult()) + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 3;
+      GCSE.sound('good');
+      $('fb').innerHTML = `<div class="feedback good">Correct! +${pts}${revenge ? ' 💥 revenge bonus' : ''}${whyHtml ? `<div class="why">${whyHtml}</div>` : ''}</div>`;
+    } else {
+      g.combo = 0;
+      GCSE.sound('bad');
+      $('fb').innerHTML = `<div class="feedback bad">${wrongHtml}${whyHtml ? `<div class="why">${whyHtml}</div>` : ''}</div>`;
+      if (mistake) g.mistakes.push(mistake);
+    }
+    hud();
+    $('fb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="next">${g.i + 1 < g.round.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('next').focus();
+    $('next').addEventListener('click', () => { g.i++; g.i < g.round.length ? show() : end(); });
+  }
+
+  function worked(q) {
+    const eq = q.eq, u = q.unknown, steps = [`Equation: <b>${esc(eq.show)}</b>`];
+    if (u !== eq.vars[0]) steps.push(`Rearrange: <b>${esc(eq.rearr[u.s])}</b>`);
+    if (q.conv) steps.push(`Convert: ${fmt(q.given.find((x) => x.s === q.conv.s).value)} ${esc(q.conv.from)} = <b>${fmt(q.values[eq.vars.findIndex((v) => v.s === q.conv.s)])} ${esc(q.conv.to)}</b>`);
+    const subs = eq.vars.filter((v) => v !== u).map((v) => `${esc(v.s)} = ${fmt(q.values[eq.vars.indexOf(v)])}`).join(', ');
+    steps.push(`Substitute: ${subs}`);
+    steps.push(`Answer: <b>${fmt(q.answer)} ${u.pct ? '(or ' + fmt(q.answer * 100) + '%)' : esc(u.u)}</b>`);
+    return `<ol class="work">${steps.map((s) => `<li>${s}</li>`).join('')}</ol>`;
+  }
+
+  function showCalc(it) {
+    const b = GCSE.box(key(it.eq));
+    const q = make(it.eq, b && b.box >= 3 ? 0.6 : 0.3);
+    let hinted = false;
+    $('kind').textContent = `Calculate · ${GROUPS[it.eq.group]}${q.conv ? ' · unit trap!' : ''}`;
+    $('body').innerHTML = `<div class="qtext">Calculate the ${esc(q.unknown.n)}${q.unknown.s.length < 4 ? ` (${esc(q.unknown.s)})` : ''}.</div>
+      <div class="given">${q.given.map((x) => `<span class="g ${q.conv && q.conv.s === x.s ? 'conv' : ''}"><span class="sym">${esc(x.n.length > 22 ? x.s : x.n)}</span> = ${fmt(x.value)} ${x.unit.startsWith('(') ? '' : esc(x.unit)}</span>`).join('')}</div>
+      <form id="cf" class="ansrow" autocomplete="off"><input class="answer" id="cin" inputmode="decimal" placeholder="Your answer"><span class="unit">${q.unknown.u.startsWith('(') ? '' : esc(q.unknown.u)}</span><button class="btn" style="flex:none">✓</button></form>
+      <div class="row" style="margin-top:10px"><button class="btn secondary" id="hint" type="button">💡 Hint (half points)</button></div>`;
+    $('cin').focus();
+    $('hint').addEventListener('click', () => {
+      hinted = true; $('hint').remove();
+      $('body').insertAdjacentHTML('beforeend', `<div class="tip" style="margin-top:10px"><span class="eqbig">${esc(it.eq.show)}</span>${q.unknown !== it.eq.vars[0] ? `<br>so <b>${esc(it.eq.rearr[q.unknown.s])}</b>` : ''}${q.conv ? `<br>Convert ${esc(q.conv.from)} to ${esc(q.conv.to)} first!` : ''}</div>`);
+    });
+    $('cf').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if ($('cin').disabled || !$('cin').value.trim()) return;
+      $('cin').disabled = true; if ($('hint')) $('hint').remove();
+      const ok = check($('cin').value, q);
+      const base = (q.conv ? 20 : 15) * (hinted ? 0.5 : 1);
+      const ans = `${fmt(q.answer)} ${q.unknown.u.startsWith('(') ? '' : q.unknown.u}`;
+      let extra = '';
+      if (!ok && q.conv) { const raw = parseFloat($('cin').value); if (isFinite(raw) && Math.abs(raw - q.answer) > 1e-9) extra = '<br>Did you convert the units first?'; }
+      finish(it, ok, base, `The answer is ${esc(ans)}.${extra}`, worked(q),
+        { q: `${esc(it.eq.show)}: find ${esc(q.unknown.n)}`, a: esc(ans), why: q.conv ? `Convert ${esc(q.conv.from)} to ${esc(q.conv.to)} first.` : (q.unknown !== it.eq.vars[0] ? esc(it.eq.rearr[q.unknown.s]) : '') });
+    });
+  }
+
+  function mcq(options, correct, onPick, oneCol) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices ${oneCol ? 'one' : ''}" id="mc">${options.map((o) => `<button class="choice">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.textContent === correct) c.classList.add('correct'); });
+      const ok = b.textContent === correct;
+      if (!ok) b.classList.add('wrong');
+      onPick(ok);
+    });
+  }
+  function showWhich(it) {
+    $('kind').textContent = 'Which equation?';
+    $('body').innerHTML = `<div class="qtext">Which equation links ${esc(it.eq.name)}?</div>`;
+    const sig = (e) => e.vars.map((x) => x.n).sort().join('|');
+    const wrong = shuffle(EQS.filter((e) => sig(e) !== sig(it.eq))).slice(0, 3).map((e) => e.show);
+    mcq(shuffle([it.eq.show].concat(wrong)), it.eq.show, (ok) => finish(it, ok, 10, `It's ${esc(it.eq.show)}.`, '',
+      { q: `Equation for ${esc(it.eq.name)}`, a: esc(it.eq.show) }), true);
+  }
+  function showUnit(it) {
+    const v = pick(it.eq.vars.filter((x) => !x.u.startsWith('(')));
+    $('kind').textContent = "What's the unit?";
+    $('body').innerHTML = `<div class="qtext">What is the unit of ${esc(v.n)}?</div>`;
+    const units = [...new Set(EQS.flatMap((e) => e.vars.map((x) => x.u)).filter((u) => !u.startsWith('(') && u !== v.u))];
+    mcq(shuffle([v.u].concat(shuffle(units).slice(0, 3))), v.u, (ok) => finish(it, ok, 10, `${esc(v.n)} is measured in ${esc(v.u)}.`, '',
+      { q: `Unit of ${esc(v.n)}`, a: esc(v.u) }));
+  }
+
+  function end() {
+    const d = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: d.score, correct: d.correct, total: d.total, xp: d.xp + 5, mistakes: d.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

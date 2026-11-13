@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quote Hunter</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .quote { font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; line-height: 1.5; border-left: 5px solid var(--subj); padding: 6px 0 6px 14px; margin: 8px 0 16px; }
+  .quote .gap { display: inline-block; min-width: 90px; border-bottom: 3px solid var(--subj); color: var(--subj); font-weight: 800; text-align: center; }
+  .meta { font-size: .85rem; color: var(--muted); margin-top: -8px; margin-bottom: 12px; }
+  .match { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .match .col { display: flex; flex-direction: column; gap: 8px; }
+  .match .choice { font-size: .92rem; }
+  .match .choice.q { font-family: Georgia, serif; }
+  .match .choice.sel { border-color: var(--subj); background: var(--surface-2); }
+  .points label { display: flex; gap: 10px; align-items: flex-start; background: var(--surface-2); border-radius: 10px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
+  .points input { width: 22px; height: 22px; flex: none; accent-color: var(--subj); }
+  .combo { font-weight: 900; color: var(--subj); }
+</style>
+</head>
+<body data-subject="english">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">English Literature · Key quotations</div>
+    <h1>🔎 Quote Hunter</h1>
+    <p>A 10-question round mixing up <b>fill the gap</b>, <b>who said it?</b>, <b>match them up</b>, <b>spot the theme</b> and one <b>explain it</b> question, like a mini exam answer. Quotes you know well get harder: you'll have to type the missing word.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Which text?</h3>
+    <div class="pills" id="texts"></div>
+    <p class="small muted" id="textnote"></p>
+    <div style="margin-top:12px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip" id="prog"></span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/quotes.js"></script>
+<script>
+(function () {
+  const AID = 'english.quotes', SUBJ = 'english';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Quote Hunter' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle, pick } = GCSE;
+  const TEXTS = window.QUOTE_TEXTS;
+  let textId = TEXTS[0].id, g = null;
+  try { const saved = localStorage.getItem('qh-text'); if (TEXTS.some((t) => t.id === saved)) textId = saved; } catch (e) {}
+
+  const key = (t, q) => `quote.${t.id}.${q.id}`;
+  const full = (q) => q.text.replace(/[{}]/g, '');
+  const gapWord = (q) => q.text.match(/\{(.+?)\}/)[1];
+  const withGap = (q) => esc(q.text).replace(/\{(.+?)\}/, '<span class="gap">?</span>');
+  const short = (s, n) => { const w = s.split(' '); return w.length > n ? w.slice(0, n).join(' ') + '…' : s; };
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('texts').innerHTML = TEXTS.map((t) => {
+      const due = GCSE.dueCount(t.quotes.map((q) => key(t, q)));
+      return `<button class="pill ${t.id === textId ? 'on' : ''}" data-id="${t.id}">${t.title}${due ? ` · ${due} due` : ''}</button>`;
+    }).join('');
+    const cur = TEXTS.find((t) => t.id === textId);
+    $('textnote').textContent = cur.note || '';
+  }
+  $('texts').addEventListener('click', (e) => { const b = e.target.closest('.pill'); if (b) { textId = b.dataset.id; try { localStorage.setItem('qh-text', textId); } catch (err) {} renderStart(); } });
+
+  // ---------- build a round ----------
+  function buildRound(t) {
+    const ids = GCSE.pickItems(t.quotes.map((q) => key(t, q)), 9);
+    const qs = ids.map((k) => t.quotes.find((q) => key(t, q) === k));
+    const round = [];
+    qs.slice(0, 4).forEach((q) => round.push({ type: 'gap', q }));
+    qs.slice(4, 6).forEach((q) => round.push({ type: 'who', q }));
+    qs.slice(6, 8).forEach((q) => round.push({ type: 'theme', q }));
+    const mixed = shuffle(round);
+    // match-up: 4 quotes with different speakers
+    const pool = shuffle(t.quotes), used = new Set(), pairs = [];
+    for (const q of pool) { if (!used.has(q.speaker)) { used.add(q.speaker); pairs.push(q); } if (pairs.length === 4) break; }
+    mixed.splice(4, 0, { type: 'match', pairs });
+    mixed.push({ type: 'explain', q: qs[8] || pick(t.quotes) });
+    return mixed;
+  }
+
+  function start() {
+    const t = TEXTS.find((x) => x.id === textId);
+    g = { t, round: buildRound(t), i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [] };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden');
+    show();
+  }
+  const mult = () => (g.combo >= 3 ? 2 : 1);
+  function hud() {
+    $('prog').textContent = `${g.i + 1} / ${g.round.length}`;
+    $('score').textContent = g.score;
+    $('combo').textContent = g.combo >= 3 ? `🔥 ×2 combo` : `combo ${g.combo}/3`;
+  }
+
+  function show() {
+    const item = g.round[g.i];
+    $('fb').innerHTML = '';
+    hud();
+    ({ gap: showGap, who: showWho, theme: showTheme, match: showMatch, explain: showExplain })[item.type](item);
+  }
+  function meta(q) { return `<div class="meta">${esc(q.speaker)} · ${esc(q.where)}</div>`; }
+
+  // ---------- answer handling ----------
+  function answer(item, ok, base, correctText, why) {
+    const q = item.q, k = key(g.t, q);
+    const revenge = ok && GCSE.wasWrong(k);
+    GCSE.grade(k, ok);
+    GCSE.topic('english.' + g.t.id, g.t.title + ' quotes', ok);
+    g.total++;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = base * mult() + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 2;
+      GCSE.sound('good');
+      $('fb').innerHTML = `<div class="feedback good">Correct! +${pts}${revenge ? ' 💥 includes a revenge bonus' : ''}<div class="why">“${esc(full(q))}” · ${esc(q.speaker)}, ${esc(q.where)}</div></div>`;
+    } else {
+      g.combo = 0;
+      GCSE.sound('bad');
+      $('fb').innerHTML = `<div class="feedback bad">The answer: ${esc(correctText)}<div class="why">“${esc(full(q))}” · ${esc(q.speaker)}, ${esc(q.where)}${why ? `<br>${why}` : ''}</div></div>`;
+      g.mistakes.push({ q: `“${esc(full(q))}”`, a: `${esc(q.speaker)}, ${esc(q.where)}`, why: `Technique: ${esc(q.technique)}. Themes: ${esc(q.themes.join(', '))}` });
+    }
+    hud();
+    nextBtn();
+  }
+  function nextBtn() {
+    $('fb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="next">${g.i + 1 < g.round.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('next').focus();
+    $('next').addEventListener('click', () => { g.i++; g.i < g.round.length ? show() : end(); });
+  }
+  function mcq(options, correct, onPick) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices" id="mc">${options.map((o) => `<button class="choice">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.textContent === correct) c.classList.add('correct'); });
+      const ok = b.textContent === correct;
+      if (!ok) b.classList.add('wrong');
+      onPick(ok);
+    });
+  }
+
+  // ---------- question types ----------
+  function showGap(item) {
+    const q = item.q, word = gapWord(q), b = GCSE.box(key(g.t, q));
+    const typeIt = b && b.box >= 3; // they know it: make them recall, not recognise
+    $('kind').textContent = typeIt ? 'Fill the gap · type it' : 'Fill the gap';
+    $('body').innerHTML = `<div class="quote">${withGap(q)}</div>${meta(q)}`;
+    if (typeIt) {
+      $('body').insertAdjacentHTML('beforeend', `<form id="tf" class="row" style="flex-wrap:nowrap" autocomplete="off"><input class="answer" id="tin" placeholder="Missing word" autocapitalize="off"><button class="btn" style="flex:none">✓</button></form>`);
+      $('tin').focus();
+      $('tf').addEventListener('submit', (e) => {
+        e.preventDefault();
+        if ($('tin').disabled || !$('tin').value.trim()) return;
+        $('tin').disabled = true;
+        answer(item, GCSE.fuzzyEqual($('tin').value, word), 15, word);
+      });
+    } else {
+      mcq(shuffle([word].concat(q.wrong)), word, (ok) => answer(item, ok, 10, word));
+    }
+  }
+  function showWho(item) {
+    const q = item.q;
+    $('kind').textContent = g.t.whoLabel || 'Who said it?';
+    $('body').innerHTML = `<div class="quote">${esc(full(q))}</div>`;
+    const others = shuffle(g.t.characters.filter((c) => c !== q.speaker)).slice(0, 3);
+    mcq(shuffle([q.speaker].concat(others)), q.speaker, (ok) => answer(item, ok, 10, q.speaker, `Context: ${esc(q.where)}.`));
+  }
+  function showTheme(item) {
+    const q = item.q, right = pick(q.themes);
+    $('kind').textContent = 'Spot the theme';
+    $('body').innerHTML = `<div class="quote">${esc(full(q))}</div>${meta(q)}<p style="margin-top:0"><b>Which theme does this quote show best?</b></p>`;
+    const others = shuffle(g.t.themes.filter((th) => !q.themes.includes(th))).slice(0, 3);
+    mcq(shuffle([right].concat(others)), right, (ok) => answer(item, ok, 10, right, `Technique: ${esc(q.technique)}.`));
+  }
+
+  function showMatch(item) {
+    $('kind').textContent = g.t.whoLabel ? 'Match them up · tap a quote, then its poem' : 'Match them up · tap a quote, then who said it';
+    const left = shuffle(item.pairs), right = shuffle(item.pairs.map((q) => q.speaker));
+    $('body').innerHTML = `<div class="match"><div class="col" id="ml">${left.map((q, i) => `<button class="choice q" data-i="${item.pairs.indexOf(q)}">${esc(short(full(q), 9))}</button>`).join('')}</div>
+      <div class="col" id="mr">${right.map((s) => `<button class="choice" data-s="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
+    let sel = null, matched = 0, firstTry = 0;
+    const missed = new Set();
+    $('ml').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || b.disabled) return;
+      [...$('ml').children].forEach((c) => c.classList.remove('sel'));
+      sel = b; b.classList.add('sel');
+    });
+    $('mr').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || b.disabled) return;
+      if (!sel) { GCSE.toast('Tap a quote first'); return; }
+      const q = item.pairs[+sel.dataset.i];
+      if (q.speaker === b.dataset.s) {
+        sel.classList.remove('sel'); sel.classList.add('correct'); b.classList.add('correct');
+        sel.disabled = true; b.disabled = true;
+        GCSE.sound('good');
+        if (!missed.has(q.id)) firstTry++;
+        GCSE.grade(key(g.t, q), !missed.has(q.id));
+        sel = null; matched++;
+        if (matched === item.pairs.length) {
+          const pts = firstTry * 5;
+          g.score += pts; g.total += item.pairs.length; g.correct += firstTry; g.xp += firstTry;
+          GCSE.topic('english.' + g.t.id, g.t.title + ' quotes', firstTry >= 3);
+          $('fb').innerHTML = `<div class="feedback ${firstTry === item.pairs.length ? 'good' : 'bad'}">${firstTry}/${item.pairs.length} matched first time. +${pts}</div>`;
+          hud(); nextBtn();
+        }
+      } else {
+        missed.add(q.id);
+        GCSE.sound('bad');
+        b.classList.add('wrong', 'shake'); setTimeout(() => b.classList.remove('wrong', 'shake'), 450);
+        if (!g.mistakes.find((m) => m.q.includes(esc(full(q))))) g.mistakes.push({ q: `“${esc(full(q))}”`, a: esc(q.speaker), why: esc(q.where) });
+      }
+    });
+  }
+
+  function showExplain(item) {
+    const q = item.q, theme = pick(q.themes);
+    $('kind').textContent = 'Explain it · mini exam answer';
+    $('body').innerHTML = `<div class="quote">${esc(full(q))}</div>${meta(q)}
+      <p style="margin-top:0"><b>How does ${esc(g.t.author)} present ${esc(theme.toLowerCase())} in this quote?</b></p>
+      <div class="tip" style="margin-bottom:10px"><b>Aim for:</b> name the technique → zoom in on a key word → explain the effect → link to context.</div>
+      <textarea id="ex" placeholder="Write 2–3 sentences…"></textarea>
+      <div class="row" style="margin-top:10px"><button class="btn" id="reveal">Compare with model points</button></div>`;
+    $('reveal').addEventListener('click', () => {
+      const written = $('ex').value.trim();
+      if (written.length < 15) { GCSE.toast('Have a proper go first: at least a sentence!'); return; }
+      $('ex').disabled = true; $('reveal').remove();
+      $('body').insertAdjacentHTML('beforeend', `<h3 style="margin-top:14px">Tick the points you made</h3>
+        <p class="small muted" style="margin-top:-6px">Technique: <b>${esc(q.technique)}</b>. Be honest: it's how you learn.</p>
+        <div class="points" id="pts">${q.points.map((p, i) => `<label><input type="checkbox" data-i="${i}"> <span>${esc(p)}</span></label>`).join('')}
+        <label><input type="checkbox" data-i="t"> <span>I named the technique (${esc(q.technique.toLowerCase())})</span></label></div>
+        <div class="row"><button class="btn" id="mark">Done</button></div>`);
+      $('mark').addEventListener('click', () => {
+        const ticks = [...document.querySelectorAll('#pts input:checked')].length;
+        const pts = ticks * 5;
+        g.score += pts; g.total++; g.xp += ticks * 2;
+        const ok = ticks >= 2;
+        if (ok) g.correct++;
+        GCSE.grade(key(g.t, q), ok);
+        GCSE.topic('english.analysis', 'Explaining quotes (analysis)', ok);
+        GCSE.sound(ok ? 'good' : 'bad');
+        $('mark').disabled = true;
+        $('fb').innerHTML = `<div class="feedback ${ok ? 'good' : 'bad'}">${ticks} point${ticks === 1 ? '' : 's'} covered. +${pts}<div class="why">${ok ? 'Good analysis. In the exam, embed the quote in your sentence.' : 'Try to hit at least two points. Re-read the model points above before you finish.'}</div></div>`;
+        hud(); nextBtn();
+      });
+    });
+  }
+
+  function end() {
+    const done = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: done.score, correct: done.correct, total: done.total, xp: done.xp, mistakes: done.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

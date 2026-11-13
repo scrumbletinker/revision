@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label It: Cells</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  :root { --cyto: #fdf3d8; --nuc: #c9b6f2; --mito: #f6a77d; --chloro: #6cc46a; --wallc: #3f8f3a; --vac: #cfe8fb; --ink: #4a4f68; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --cyto: #3a3524; --nuc: #5c4a8f; --mito: #a8613f; --chloro: #3d8a3b; --wallc: #6fd068; --vac: #29445c; --ink: #c9cde0; } }
+  :root[data-theme="dark"] { --cyto: #3a3524; --nuc: #5c4a8f; --mito: #a8613f; --chloro: #3d8a3b; --wallc: #6fd068; --vac: #29445c; --ink: #c9cde0; }
+  svg.diagram { width: 100%; height: auto; display: block; background: var(--surface); border-radius: 14px; border: 1px solid var(--border); }
+  .diagram .cyto { fill: var(--cyto); stroke: var(--ink); stroke-width: 2.5; }
+  .diagram .nuc { fill: var(--nuc); stroke: var(--ink); stroke-width: 2; }
+  .diagram .nucleolus { fill: var(--ink); opacity: .45; }
+  .diagram .mito { fill: var(--mito); stroke: var(--ink); stroke-width: 1.5; }
+  .diagram .cristae, .diagram .thyl { fill: none; stroke: var(--ink); stroke-width: 1.2; opacity: .7; }
+  .diagram .chloro { fill: var(--chloro); stroke: var(--ink); stroke-width: 1.2; }
+  .diagram .wall { fill: none; stroke: var(--wallc); stroke-width: 10; }
+  .diagram .vac { fill: var(--vac); stroke: var(--ink); stroke-width: 1.5; }
+  .diagram .ribo circle { fill: var(--ink); }
+  .diagram .dna { fill: none; stroke: #d6457a; stroke-width: 3; }
+  .diagram .plasmid { fill: none; stroke: #d6457a; stroke-width: 2.5; }
+  .diagram .flag { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+  .diagram .lead { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .diagram .anchor { fill: var(--text); }
+  .diagram .target { cursor: pointer; }
+  .diagram .target circle { fill: var(--surface); stroke: var(--subj); stroke-width: 3; transition: fill .2s; }
+  .diagram .target text { fill: var(--text); font-weight: 900; font-size: 15px; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .diagram .target.done circle { fill: var(--good); stroke: var(--good); }
+  .diagram .target.done text { fill: #fff; }
+  .diagram .target.miss circle { fill: var(--bad); stroke: var(--bad); }
+  .diagram .target.drop-hover circle { fill: var(--good-soft); }
+  .diagram .target.drop-hover { outline: none; }
+  .labels { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  @media (max-width: 600px) { .lab { padding: 7px 11px; font-size: .88rem; } }
+  .lab { background: var(--surface); border: 2px solid var(--subj); color: var(--text); border-radius: 999px; padding: 9px 14px; font-weight: 800; font-size: .95rem; }
+  .lab.placed { border-color: var(--good); background: var(--good-soft); cursor: default; }
+  .lab .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--good); color: #fff; font-size: .8rem; margin-right: 6px; }
+</style>
+</head>
+<body data-subject="science">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">Biology · Cell structure</div>
+    <h1>🦠 Label It: Cells</h1>
+    <p><b>Drag</b> each label onto the right numbered pin. You can also <b>tap</b> a label and then tap a pin. After that, there are quick-fire questions on what each part does.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Choose a cell</h3>
+    <div class="pills" id="picker"></div>
+    <div style="margin-top:18px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="label" class="hidden">
+    <div class="hud"><span class="kicker" id="dname" style="font-size:.9rem"></span><span class="spacer"></span><span class="chip">⭐ <span id="score">0</span></span><span class="chip" id="left"></span></div>
+    <div class="labels" id="labels"></div>
+    <svg class="diagram" id="svg" viewBox="0 0 520 320" role="img" aria-label="Cell diagram with numbered pins"></svg>
+    <div id="lfb"></div>
+  </section>
+
+  <section id="quiz" class="hidden card">
+    <div class="hud"><span class="kicker" id="qk"></span><span class="spacer"></span><span class="chip">⭐ <span id="qscore">0</span></span></div>
+    <div class="question" id="qq" style="font-size:1.2rem"></div>
+    <div class="choices" id="qc"></div>
+    <div id="qfb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/cells.js"></script>
+<script>
+(function () {
+  const AID = 'science.labelit', SUBJ = 'science';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Label It: Cells' });
+  const $ = (id) => document.getElementById(id);
+  const D = window.CELL_DIAGRAMS, FN = window.CELL_FUNCTIONS;
+  const partKey = (d, p) => `cells.${d.id}.${p.id}`;
+  const fnKey = (id) => `cells.fn.${id}`;
+  let choice = 'mixed', g = null;
+
+  function dueFor(d) { return GCSE.dueCount(d.parts.map((p) => partKey(d, p))); }
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('picker').innerHTML = [['mixed', '🎲 Surprise me']].concat(D.map((d) => [d.id, d.name + (dueFor(d) ? ` · ${dueFor(d)} due` : '')]))
+      .map(([id, n]) => `<button class="pill ${choice === id ? 'on' : ''}" data-id="${id}">${n}</button>`).join('');
+  }
+  $('picker').addEventListener('click', (e) => { const b = e.target.closest('.pill'); if (b) { choice = b.dataset.id; renderStart(); } });
+
+  function chooseDiagram() {
+    if (choice !== 'mixed') return D.find((d) => d.id === choice);
+    // favour the diagram with the most due/unseen parts
+    const scored = D.map((d) => ({ d, s: d.parts.filter((p) => { const b = GCSE.box(partKey(d, p)); return !b || GCSE.isDue(partKey(d, p)); }).length + Math.random() }));
+    return scored.sort((a, b) => b.s - a.s)[0].d;
+  }
+
+  // ---------- label phase ----------
+  function start() {
+    const d = chooseDiagram();
+    g = { d, score: 0, correct: 0, total: 0, xp: 0, mistakes: [], tried: {}, placed: 0 };
+    $('start').classList.add('hidden'); $('quiz').classList.add('hidden'); $('label').classList.remove('hidden');
+    $('dname').textContent = d.name;
+    const order = GCSE.shuffle(d.parts.map((_, i) => i)); // pin numbers are shuffled each round
+    g.num = {}; order.forEach((pi, n) => { g.num[d.parts[pi].id] = n + 1; });
+    let pins = '';
+    d.parts.forEach((p) => {
+      pins += `<line class="lead" x1="${p.a[0]}" y1="${p.a[1]}" x2="${p.p[0]}" y2="${p.p[1]}"/><circle class="anchor" cx="${p.a[0]}" cy="${p.a[1]}" r="3.5"/>`;
+    });
+    d.parts.forEach((p) => {
+      pins += `<g class="target" data-id="${p.id}"><circle cx="${p.p[0]}" cy="${p.p[1]}" r="20"/><text x="${p.p[0]}" y="${p.p[1]}">${g.num[p.id]}</text></g>`;
+    });
+    $('svg').innerHTML = d.svg + pins;
+    $('labels').innerHTML = GCSE.shuffle(d.parts).map((p) => `<button class="lab draggable" data-id="${p.id}">${p.label}</button>`).join('');
+    $('lfb').innerHTML = '';
+    updateHud();
+  }
+  function updateHud() {
+    $('score').textContent = g.score;
+    $('left').textContent = `${g.d.parts.length - g.placed} to place`;
+  }
+
+  GCSE.dragDrop({
+    container: $('label'), itemSelector: '.lab:not(.placed)', targetSelector: '.target:not(.done)',
+    onDrop(chip, pin) {
+      const id = chip.dataset.id, d = g.d, part = d.parts.find((p) => p.id === id);
+      const key = partKey(d, part);
+      const first = !g.tried[id];
+      g.tried[id] = true;
+      if (pin.dataset.id === id) {
+        const revenge = first && GCSE.wasWrong(key);
+        if (first) { g.correct++; g.score += 10 + (revenge ? 5 : 0); g.xp += 2; GCSE.grade(key, true); }
+        g.total += first ? 1 : 0;
+        GCSE.topic('science.cells', 'Cell structure', first);
+        $('lfb').innerHTML = '';
+        pin.classList.add('done');
+        chip.classList.add('placed'); chip.dataset.locked = '1';
+        chip.innerHTML = `<span class="n">${g.num[id]}</span>${part.label}`;
+        g.placed++;
+        GCSE.sound('good');
+        if (revenge) GCSE.toast('💥 Revenge bonus +5! You got it wrong last time.');
+        updateHud();
+        if (g.placed === d.parts.length) finishLabels();
+      } else {
+        if (first) {
+          g.total++; GCSE.grade(key, false); GCSE.topic('science.cells', 'Cell structure', false);
+          g.mistakes.push({ q: `${part.label} (${d.name})`, a: `Pin ${g.num[id]}`, why: FN[id] });
+        }
+        GCSE.sound('bad');
+        chip.classList.add('shake'); setTimeout(() => chip.classList.remove('shake'), 400);
+        pin.classList.add('miss'); setTimeout(() => pin.classList.remove('miss'), 500);
+        const hint = d.parts.find((p) => p.id === pin.dataset.id);
+        $('lfb').innerHTML = `<div class="feedback bad">Not that one. Clue for pin ${g.num[pin.dataset.id]}: <span class="why" style="display:inline">${FN[hint.id]}</span></div>`;
+      }
+    }
+  });
+
+  function finishLabels() {
+    $('lfb').innerHTML = `<div class="feedback good">All labelled! ${g.correct}/${g.d.parts.length} right first time.</div>
+      <div class="row" style="margin-top:10px"><button class="btn" id="toquiz">Quick-fire questions →</button></div>`;
+    $('toquiz').focus();
+    $('toquiz').addEventListener('click', startQuiz);
+  }
+
+  // ---------- quick-fire phase ----------
+  function startQuiz() {
+    const d = g.d;
+    const fnIds = GCSE.pickItems(d.parts.map((p) => fnKey(p.id)), 3).map((k) => k.replace('cells.fn.', ''));
+    const qs = fnIds.map((id) => {
+      const twins = { wall: 'bwall', bwall: 'wall', nucleus: 'dna', dna: 'nucleus' }; // too similar to be fair distractors
+      const others = GCSE.shuffle(Object.keys(FN).filter((k) => k !== id && k !== twins[id])).slice(0, 3).map((k) => FN[k]);
+      const label = d.parts.find((p) => p.id === id).label;
+      return { key: fnKey(id), kind: 'What does it do?', q: `What is the job of the <b>${label.toLowerCase()}</b>?`, a: FN[id], options: GCSE.shuffle([FN[id]].concat(others)), label };
+    });
+    const fact = GCSE.pick(d.facts);
+    qs.push({ key: `cells.fact.${d.id}.${d.facts.indexOf(fact)}`, kind: 'Quick fact', q: fact.q, a: fact.a, options: GCSE.shuffle([fact.a].concat(fact.wrong)) });
+    g.qs = GCSE.shuffle(qs); g.qi = 0;
+    $('label').classList.add('hidden'); $('quiz').classList.remove('hidden');
+    showQ();
+  }
+  function showQ() {
+    const q = g.qs[g.qi];
+    g.locked = false;
+    $('qk').textContent = `${q.kind} · ${g.qi + 1}/${g.qs.length}`;
+    $('qq').innerHTML = q.q;
+    $('qscore').textContent = g.score;
+    $('qc').innerHTML = q.options.map((o) => `<button class="choice">${GCSE.esc(o)}</button>`).join('');
+    $('qfb').innerHTML = '';
+  }
+  $('qc').addEventListener('click', (e) => {
+    const b = e.target.closest('.choice'); if (!b || g.locked) return;
+    g.locked = true;
+    const q = g.qs[g.qi], ok = b.textContent === q.a;
+    const revenge = ok && GCSE.wasWrong(q.key);
+    GCSE.grade(q.key, ok); GCSE.topic('science.cellfn', 'Cell parts and their jobs', ok);
+    g.total++;
+    [...$('qc').children].forEach((c) => { c.disabled = true; if (c.textContent === q.a) c.classList.add('correct'); });
+    if (ok) { g.correct++; g.score += 10 + (revenge ? 5 : 0); g.xp += 2; GCSE.sound('good'); $('qfb').innerHTML = `<div class="feedback good">Correct!${revenge ? ' 💥 Revenge bonus +5' : ''}</div>`; }
+    else { b.classList.add('wrong'); GCSE.sound('bad'); $('qfb').innerHTML = `<div class="feedback bad">The answer: ${GCSE.esc(q.a)}</div>`; g.mistakes.push({ q: q.q, a: GCSE.esc(q.a) }); }
+    $('qscore').textContent = g.score;
+    $('qfb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="qnext">${g.qi + 1 < g.qs.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('qnext').focus();
+    $('qnext').addEventListener('click', () => { g.qi++; g.qi < g.qs.length ? showQ() : end(); });
+  });
+
+  function end() {
+    const done = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: done.score, correct: done.correct, total: done.total, xp: done.xp, mistakes: done.mistakes,
+      onAgain: () => { $('quiz').classList.add('hidden'); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

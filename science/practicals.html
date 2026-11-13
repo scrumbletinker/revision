@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Required Practicals</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .qtext { font-size: 1.15rem; font-weight: 800; margin: 6px 0 12px; line-height: 1.4; }
+  .pname { display: inline-block; background: var(--surface-2); border-radius: 10px; padding: 6px 12px; font-weight: 800; margin-bottom: 10px; }
+  .pname .sci { color: var(--subj); }
+  .choices.one { grid-template-columns: 1fr; }
+  .choices .choice { text-align: left; }
+  .order { display: flex; flex-direction: column; gap: 8px; }
+  .order .choice { display: flex; gap: 12px; align-items: center; text-align: left; }
+  .order .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; background: var(--surface-2); color: var(--muted); }
+  .order .choice.picked .num { background: var(--subj); color: #fff; }
+  .steps { margin: 8px 0 0; padding-left: 22px; }
+  .steps li { margin-bottom: 4px; }
+  .combo { font-weight: 900; color: var(--subj); }
+  .tri { font-size: .7rem; font-weight: 800; background: var(--warn); color: #1b1d2a; border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
+</style>
+</head>
+<body data-subject="science">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">AQA Triple Science · Required practicals</div>
+    <h1>🧪 Required Practicals</h1>
+    <p>Around 15% of the marks in AQA science papers are about the required practicals. Each round has 10 questions: <b>put the method in order</b>, <b>spot the independent, dependent and control variables</b>, and <b>"why do we…?"</b> questions.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Sciences</h3>
+    <div class="pills" id="scis"></div>
+    <p class="small muted"><span class="tri">Triple</span> marks the practicals only in separate (Triple) science. He needs them all. Methods here are typical; his school's versions may differ slightly.</p>
+    <div style="margin-top:12px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip" id="prog"></span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/practicals.js"></script>
+<script>
+(function () {
+  const AID = 'science.practicals', SUBJ = 'science';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Required Practicals' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle, pick } = GCSE;
+  const ALL = window.PRACTICALS, SCI = window.PRACTICAL_SCI;
+  let scis = Object.keys(SCI), g = null;
+  try { const s = JSON.parse(localStorage.getItem('rp-scis')); if (Array.isArray(s)) { const f = s.filter((x) => SCI[x]); if (f.length) scis = f; } } catch (e) {}
+
+  const k = (p, part) => `prac.${p.id}.${part}`;
+  const pool = () => ALL.filter((p) => scis.includes(p.sci));
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('scis').innerHTML = Object.entries(SCI).map(([id, name]) => {
+      const ps = ALL.filter((p) => p.sci === id);
+      const due = GCSE.dueCount(ps.flatMap((p) => ['order', 'iv', 'dv', 'ctrl', 'why'].map((part) => k(p, part))));
+      return `<button class="pill ${scis.includes(id) ? 'on' : ''}" data-id="${id}">${name} (${ps.length})${due ? ` · ${due} due` : ''}</button>`;
+    }).join('');
+  }
+  $('scis').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    const id = b.dataset.id;
+    if (scis.includes(id)) { if (scis.length > 1) scis = scis.filter((x) => x !== id); else GCSE.toast('Pick at least one science'); }
+    else scis.push(id);
+    try { localStorage.setItem('rp-scis', JSON.stringify(scis)); } catch (err) {}
+    renderStart();
+  });
+
+  function choose(list, part, n) {
+    const keys = list.map((p) => k(p, part));
+    return GCSE.pickItems(keys, Math.min(n, keys.length)).map((key) => list.find((p) => k(p, part) === key));
+  }
+  function buildRound() {
+    const ps = pool(), vars = ps.filter((p) => p.iv);
+    const r = [];
+    choose(ps, 'order', 3).forEach((p) => r.push({ type: 'order', p }));
+    choose(vars, 'iv', 2).forEach((p) => r.push({ type: 'iv', p }));
+    choose(vars, 'dv', 2).forEach((p) => r.push({ type: 'dv', p }));
+    choose(vars, 'ctrl', 1).forEach((p) => r.push({ type: 'ctrl', p }));
+    choose(ps, 'why', 10 - r.length).forEach((p) => r.push({ type: 'why', p }));
+    // avoid the same practical twice in a row where possible
+    const out = shuffle(r);
+    for (let i = 1; i < out.length; i++) if (out[i].p === out[i - 1].p) { const j = out.findIndex((x, n) => n > i && x.p !== out[i].p); if (j > 0) [out[i], out[j]] = [out[j], out[i]]; }
+    return out.slice(0, 10);
+  }
+
+  function start() {
+    g = { round: buildRound(), i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [] };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    show();
+  }
+  const mult = () => (g.combo >= 3 ? 2 : 1);
+  function hud() {
+    $('prog').textContent = `${g.i + 1} / ${g.round.length}`;
+    $('score').textContent = g.score;
+    $('combo').textContent = g.combo >= 3 ? '🔥 ×2 combo' : `combo ${g.combo}/3`;
+  }
+  const head = (p) => `<div class="pname"><span class="sci">${SCI[p.sci]}</span> · ${esc(p.name)}${p.triple ? '<span class="tri">Triple</span>' : ''}</div>`;
+  function show() {
+    $('fb').innerHTML = '';
+    hud();
+    const it = g.round[g.i];
+    ({ order: showOrder, iv: showVar, dv: showVar, ctrl: showVar, why: showWhy })[it.type](it);
+  }
+
+  function finish(it, part, ok, base, wrongHtml, whyHtml, mistake) {
+    const key = k(it.p, part), revenge = ok && GCSE.wasWrong(key);
+    GCSE.grade(key, ok);
+    const label = { order: 'method order', iv: 'variables', dv: 'variables', ctrl: 'variables', why: 'explaining methods' }[part];
+    GCSE.topic(`science.prac.${part === 'iv' || part === 'dv' || part === 'ctrl' ? 'vars' : part}`, 'Required practicals: ' + label, ok);
+    g.total++;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = base * mult() + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 2;
+      GCSE.sound('good');
+      $('fb').innerHTML = `<div class="feedback good">Correct! +${pts}${revenge ? ' 💥 revenge bonus' : ''}${whyHtml ? `<div class="why">${whyHtml}</div>` : ''}</div>`;
+    } else {
+      g.combo = 0;
+      GCSE.sound('bad');
+      $('fb').innerHTML = `<div class="feedback bad">${wrongHtml}${whyHtml ? `<div class="why">${whyHtml}</div>` : ''}</div>`;
+      if (mistake) g.mistakes.push(mistake);
+    }
+    hud();
+    $('fb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="next">${g.i + 1 < g.round.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('next').focus();
+    $('next').addEventListener('click', () => { g.i++; g.i < g.round.length ? show() : end(); });
+  }
+
+  function mcq(options, correct, onPick) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices one" id="mc">${options.map((o) => `<button class="choice">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.textContent === correct) c.classList.add('correct'); });
+      const ok = b.textContent === correct;
+      if (!ok) b.classList.add('wrong');
+      onPick(ok);
+    });
+  }
+
+  function varSummary(p) {
+    return `Independent: <b>${esc(p.iv)}</b><br>Dependent: <b>${esc(p.dv)}</b><br>Control: ${esc(p.controls.join('; '))}`;
+  }
+  function showVar(it) {
+    const p = it.p, t = it.type;
+    const others = shuffle(ALL.filter((x) => x.iv && x !== p));
+    let q, right, wrong;
+    if (t === 'iv') {
+      q = 'What is the <b>independent</b> variable (the one you change)?'; right = p.iv;
+      wrong = [p.dv].concat(others.filter((x) => x.sci === p.sci).map((x) => x.iv).slice(0, 2));
+    } else if (t === 'dv') {
+      q = 'What is the <b>dependent</b> variable (the one you measure)?'; right = p.dv;
+      wrong = [p.iv].concat(others.filter((x) => x.sci === p.sci).map((x) => x.dv).slice(0, 2));
+    } else {
+      q = 'Which of these is a <b>control</b> variable (kept the same)?'; right = pick(p.controls);
+      const words = (t) => t.toLowerCase().match(/[a-z]{5,}/g) || [];
+      const mine = new Set(p.controls.concat(p.iv, p.dv).flatMap(words));
+      const foreign = others.filter((x) => x.sci !== p.sci).flatMap((x) => x.controls).filter((c) => !words(c).some((w) => mine.has(w)));
+      wrong = [p.iv, p.dv, pick(foreign)];
+    }
+    const fill = others.map((x) => (t === 'dv' ? x.dv : x.iv));
+    wrong = [...new Set(wrong.filter((w) => w !== right))];
+    for (const f of fill) { if (wrong.length >= 3) break; if (f !== right && !wrong.includes(f)) wrong.push(f); }
+    $('kind').textContent = { iv: 'Independent variable', dv: 'Dependent variable', ctrl: 'Control variable' }[t];
+    $('body').innerHTML = head(p) + `<div class="qtext">${q}</div>`;
+    mcq(shuffle([right].concat(wrong.slice(0, 3))), right, (ok) => finish(it, t, ok, 10, `The answer: ${esc(right)}`, varSummary(p),
+      { q: `${esc(p.name)}: ${t === 'ctrl' ? 'control' : t.toUpperCase()}`, a: esc(right) }));
+  }
+
+  function showWhy(it) {
+    const p = it.p, [q, a, wrong] = p.why;
+    $('kind').textContent = 'Why do we…?';
+    $('body').innerHTML = head(p) + `<div class="qtext">${esc(q)}</div>`;
+    mcq(shuffle([a].concat(wrong)), a, (ok) => finish(it, 'why', ok, 10, `The answer: ${esc(a)}`, '', { q: esc(q), a: esc(a) }));
+  }
+
+  function showOrder(it) {
+    const p = it.p, n = p.steps.length, idx = shuffle(p.steps.map((_, i) => i));
+    $('kind').textContent = 'Put the method in order · tap the first step first';
+    $('body').innerHTML = head(p) + `<div class="order" id="ord">${idx.map((i) => `<button class="choice" data-i="${i}"><span class="num"></span><span>${esc(p.steps[i])}</span></button>`).join('')}</div>
+      <div class="row" style="margin-top:10px"><button class="btn secondary" id="undo">↺ Start again</button></div>`;
+    const picks = [];
+    $('undo').addEventListener('click', () => { picks.length = 0; [...$('ord').children].forEach((c) => { c.classList.remove('picked'); c.querySelector('.num').textContent = ''; }); });
+    $('ord').addEventListener('click', (ev) => {
+      const b = ev.target.closest('.choice'); if (!b || b.disabled || b.classList.contains('picked')) return;
+      picks.push(+b.dataset.i);
+      b.classList.add('picked'); b.querySelector('.num').textContent = picks.length;
+      if (picks.length < n) return;
+      $('undo').remove();
+      let right = 0;
+      [...$('ord').children].forEach((c) => {
+        c.disabled = true;
+        const i = +c.dataset.i, ok = picks.indexOf(i) === i;
+        if (ok) right++;
+        c.classList.add(ok ? 'correct' : 'wrong');
+      });
+      const all = right === n;
+      if (!all && right) g.score += right * 3;
+      finish(it, 'order', all, 20, `${right}/${n} steps in the right place${right ? ` (+${right * 3})` : ''}. The correct method:`,
+        `<ol class="steps">${p.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>`,
+        { q: `Method: ${esc(p.name)}`, a: p.steps.map(esc).join(' → ') });
+    });
+  }
+
+  function end() {
+    const d = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: d.score, correct: d.correct, total: d.total, xp: d.xp + 5, mistakes: d.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

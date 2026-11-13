@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Science Blitz</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .prompt { font-size: 1.3rem; font-weight: 800; margin: 8px 0 14px; line-height: 1.4; min-height: 3em; }
+  .prompt.def { font-size: 1.1rem; font-weight: 700; }
+  .choices.one { grid-template-columns: 1fr; }
+  .choices .choice { text-align: left; }
+  .combo { font-weight: 900; color: var(--subj); }
+  .tri { font-size: .7rem; font-weight: 800; background: var(--warn); color: #1b1d2a; border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
+</style>
+</head>
+<body data-subject="science">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">AQA Triple Science · Key terms</div>
+    <h1>⚡ Science Blitz</h1>
+    <p><b>90 seconds.</b> Match key terms to their meanings as fast as you can. Three right in a row builds a combo multiplier, up to ×3. Definitions come up in 6-mark questions all the time, so knowing them exactly pays off.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Sciences</h3>
+    <div class="pills" id="scis"></div>
+    <p class="small muted"><span class="tri">Triple</span> marks terms only in separate (Triple) science.</p>
+    <div style="margin-top:12px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip" id="clock">90s</span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="timerbar" id="tbar"><div></div></div>
+    <div class="kicker" id="kind" style="margin-top:12px"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/science-terms.js"></script>
+<script>
+(function () {
+  const AID = 'science.blitz', SUBJ = 'science', SECS = 90;
+  GCSE.mountHeader({ subject: SUBJ, title: 'Science Blitz' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle } = GCSE;
+  const DATA = window.SCI_TERMS;
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const ITEMS = Object.entries(DATA).flatMap(([sci, d]) => d.terms.map(([term, def, triple]) => ({ sci, term, def, triple: !!triple, key: `sci.term.${sci}.${slug(term)}` })));
+  let scis = Object.keys(DATA), g = null;
+  try { const s = JSON.parse(localStorage.getItem('sb-scis')); if (Array.isArray(s)) { const f = s.filter((x) => DATA[x]); if (f.length) scis = f; } } catch (e) {}
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    $('scis').innerHTML = Object.entries(DATA).map(([id, d]) => {
+      const due = GCSE.dueCount(ITEMS.filter((x) => x.sci === id).map((x) => x.key));
+      const acc = GCSE.topicAccuracy('science.terms.' + id);
+      return `<button class="pill ${scis.includes(id) ? 'on' : ''}" data-id="${id}">${d.icon} ${d.name}${due ? ` · ${due} due` : ''}${acc !== null && acc < 0.6 ? ' <span class="tag">weak</span>' : ''}</button>`;
+    }).join('');
+  }
+  $('scis').addEventListener('click', (e) => {
+    const b = e.target.closest('.pill'); if (!b) return;
+    const id = b.dataset.id;
+    if (scis.includes(id)) { if (scis.length > 1) scis = scis.filter((x) => x !== id); else GCSE.toast('Pick at least one science'); }
+    else scis.push(id);
+    try { localStorage.setItem('sb-scis', JSON.stringify(scis)); } catch (err) {}
+    renderStart();
+  });
+
+  function start() {
+    const pool = ITEMS.filter((x) => scis.includes(x.sci));
+    const order = GCSE.pickItems(pool.map((x) => x.key), pool.length).map((k) => pool.find((x) => x.key === k));
+    g = { pool, order, i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [], over: false };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    g.timer = GCSE.timer(SECS, (left, frac) => {
+      $('clock').textContent = Math.ceil(left) + 's';
+      $('tbar').firstElementChild.style.width = (frac * 100) + '%';
+      $('tbar').classList.toggle('low', left < 15);
+    }, () => { g.over = true; if (!g.waiting) end(); });
+    next();
+  }
+  const mult = () => Math.min(3, 1 + Math.floor(g.combo / 3));
+  function hud() {
+    $('score').textContent = g.score;
+    $('combo').textContent = g.combo >= 3 ? `🔥 ×${mult()} combo` : `combo ${g.combo}/3`;
+  }
+
+  function next() {
+    if (g.over) { end(); return; }
+    if (g.i >= g.order.length) { g.order = g.order.concat(shuffle(g.pool)); }
+    const it = g.order[g.i++];
+    g.waiting = false;
+    $('fb').innerHTML = '';
+    hud();
+    const box = GCSE.box(it.key);
+    const termToDef = !box || box.box < 2 ? Math.random() < 0.6 : Math.random() < 0.35; // harder direction once known
+    const others = shuffle(ITEMS.filter((x) => x.sci === it.sci && x !== it)).slice(0, 3);
+    const tri = it.triple ? '<span class="tri">Triple</span>' : '';
+    if (termToDef) {
+      $('kind').innerHTML = `${DATA[it.sci].icon} What does this mean?`;
+      $('body').innerHTML = `<div class="prompt">${esc(it.term)}${tri}</div>`;
+      mcq(it, shuffle([it].concat(others)).map((x) => x.def), it.def);
+    } else {
+      $('kind').innerHTML = `${DATA[it.sci].icon} Name the term`;
+      $('body').innerHTML = `<div class="prompt def">${esc(it.def)}${tri}</div>`;
+      mcq(it, shuffle([it].concat(others)).map((x) => x.term), it.term, true);
+    }
+  }
+
+  function mcq(it, options, correct, two) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices ${two ? '' : 'one'}" id="mc">${options.map((o) => `<button class="choice">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || $('mc').dataset.done) return;
+      $('mc').dataset.done = '1';
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.textContent === correct) c.classList.add('correct'); });
+      const ok = b.textContent === correct;
+      const revenge = ok && GCSE.wasWrong(it.key);
+      GCSE.grade(it.key, ok);
+      GCSE.topic('science.terms.' + it.sci, `${DATA[it.sci].name} key terms`, ok);
+      g.total++;
+      if (ok) {
+        g.combo++; g.correct++;
+        const pts = 10 * mult() + (revenge ? 5 : 0);
+        g.score += pts; g.xp += 1;
+        GCSE.sound('good');
+        hud();
+        $('fb').innerHTML = `<div class="feedback good">+${pts}${revenge ? ' 💥 revenge bonus' : ''}</div>`;
+        setTimeout(next, 600);
+      } else {
+        b.classList.add('wrong');
+        g.combo = 0; g.waiting = true;
+        g.timer.pause();
+        GCSE.sound('bad');
+        hud();
+        g.mistakes.push({ q: esc(it.term), a: esc(it.def) });
+        $('fb').innerHTML = `<div class="feedback bad"><b>${esc(it.term)}</b>: ${esc(it.def)}<div class="why">Clock paused. Read it, then carry on.</div></div>
+          <div class="row" style="margin-top:10px"><button class="btn" id="nx">Next →</button></div>`;
+        $('nx').focus();
+        $('nx').addEventListener('click', () => { g.timer.resume(); next(); });
+      }
+    });
+  }
+
+  function end() {
+    if (g.ended) return;
+    g.ended = true;
+    g.timer.stop();
+    const d = g;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: d.score, correct: d.correct, total: d.total, xp: d.xp + 5, mistakes: d.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph Lab</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .lab { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 700px) { .lab { grid-template-columns: 1fr; } }
+  svg.plot { width: 100%; height: auto; display: block; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); touch-action: manipulation; }
+  .plot .grid { stroke: var(--surface-2); stroke-width: 1; }
+  .plot .axis { stroke: var(--muted); stroke-width: 1.6; }
+  .plot .tick { fill: var(--muted); font-size: 10px; }
+  .plot .curve { fill: none; stroke: var(--subj); stroke-width: 3.5; stroke-linecap: round; }
+  .plot .pt { fill: var(--warn); stroke: var(--surface); stroke-width: 2; }
+  .plot .ptlabel { fill: var(--text); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+  .slider { margin-bottom: 14px; }
+  .slider label { display: flex; justify-content: space-between; font-weight: 800; }
+  .slider input { width: 100%; accent-color: var(--subj); height: 28px; }
+  .eq { font-size: 1.5rem; font-weight: 900; margin: 6px 0 12px; font-family: "Cambria Math", Georgia, serif; }
+  .facts { display: grid; gap: 6px; }
+  .facts div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; font-size: .95rem; }
+  .choice.mathy { font-family: "Cambria Math", Georgia, serif; font-size: 1.1rem; }
+</style>
+</head>
+<body data-subject="maths">
+<main class="wrap">
+  <div class="tabs">
+    <button class="pill on" data-tab="explore">🧪 Explore</button>
+    <button class="pill" data-tab="challenge">⚡ Challenge</button>
+  </div>
+
+  <!-- EXPLORE -->
+  <section id="explore">
+    <div class="pills" style="margin-bottom:12px">
+      <button class="pill on" data-kind="lin">Straight line y = mx + c</button>
+      <button class="pill" data-kind="quad">Quadratic y = ax² + bx + c</button>
+    </div>
+    <div class="lab">
+      <svg class="plot" id="eplot" viewBox="0 0 400 400" role="img" aria-label="Graph"></svg>
+      <div class="card" style="margin:0">
+        <div class="eq" id="eeq"></div>
+        <div id="sliders"></div>
+        <div class="facts" id="efacts"></div>
+        <div class="tip" style="margin-top:12px" id="etip"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHALLENGE -->
+  <section id="challenge" class="hidden">
+    <div id="cstart" class="card">
+      <div class="kicker">Maths · Graphs</div>
+      <h1>⚡ Graph Challenge</h1>
+      <p>10 questions on reading graphs. Answer fast for a speed bonus of up to +10 per question.</p>
+      <div class="row small" id="ctargets"></div>
+      <div style="margin-top:16px"><button class="btn block" id="cgo">Start ▶</button></div>
+    </div>
+    <div id="cgame" class="hidden">
+      <div class="hud">
+        <span class="chip" id="cprog">1 / 10</span>
+        <span class="spacer"></span>
+        <span class="chip">⭐ <span id="cscore">0</span></span>
+      </div>
+      <div class="lab">
+        <svg class="plot" id="cplot" viewBox="0 0 400 400" role="img" aria-label="Graph for the question"></svg>
+        <div class="card" style="margin:0">
+          <div class="kicker" id="ckind"></div>
+          <div class="question" id="cq" style="font-size:1.25rem"></div>
+          <div class="choices" id="cchoices" style="grid-template-columns:1fr 1fr"></div>
+          <div id="cfb"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script>
+(function () {
+  const AID = 'maths.graphlab', SUBJ = 'maths';
+  GCSE.mountHeader({ subject: SUBJ, title: 'Graph Lab' });
+  const $ = (id) => document.getElementById(id);
+  const R = 10, S = 400 / (2 * R); // −10..10, 20px per unit
+  const X = (x) => 200 + x * S, Y = (y) => 200 - y * S;
+
+  // ---------- formatting ----------
+  function num(n) {
+    if (Object.is(n, -0)) n = 0;
+    const s = Math.abs(n) === 0.5 ? '½' : Math.abs(n) === 1.5 ? '1½' : Math.abs(n) === 2.5 ? '2½' : String(Math.abs(n));
+    return (n < 0 ? '−' : '') + s;
+  }
+  function term(coef, v, first) {
+    if (coef === 0) return '';
+    const sign = coef < 0 ? (first ? '−' : ' − ') : (first ? '' : ' + ');
+    const a = Math.abs(coef);
+    const body = v ? (a === 1 ? v : num(a) + v) : num(a);
+    return sign + body;
+  }
+  function linEq(m, c) {
+    let s = term(m, 'x', true) + term(c, '', m === 0);
+    return 'y = ' + (s || '0');
+  }
+  function quadEq(a, b, c) {
+    let s = term(a, 'x²', true) + term(b, 'x', a === 0) + term(c, '', a === 0 && b === 0);
+    return 'y = ' + (s || '0');
+  }
+
+  // ---------- plotting ----------
+  function axes() {
+    let g = '';
+    for (let i = -R; i <= R; i++) {
+      if (i) g += `<line class="grid" x1="${X(i)}" y1="0" x2="${X(i)}" y2="400"/><line class="grid" x1="0" y1="${Y(i)}" x2="400" y2="${Y(i)}"/>`;
+    }
+    g += `<line class="axis" x1="0" y1="200" x2="400" y2="200"/><line class="axis" x1="200" y1="0" x2="200" y2="400"/>`;
+    for (let i = -R + 2; i < R; i += 2) if (i) {
+      g += `<text class="tick" x="${X(i)}" y="214" text-anchor="middle">${num(i)}</text>`;
+      g += `<text class="tick" x="192" y="${Y(i) + 3}" text-anchor="end">${num(i)}</text>`;
+    }
+    g += `<text class="tick" x="392" y="192" text-anchor="end" style="font-style:italic;font-size:13px">x</text><text class="tick" x="208" y="14" style="font-style:italic;font-size:13px">y</text>`;
+    return g;
+  }
+  function curve(f) {
+    let d = '', pen = false;
+    for (let x = -R; x <= R + 1e-9; x += 0.05) {
+      const y = f(x);
+      if (Math.abs(y) > R + 2) { pen = false; continue; }
+      d += (pen ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(y).toFixed(1);
+      pen = true;
+    }
+    return `<path class="curve" d="${d}"/>`;
+  }
+  function point(x, y, label) {
+    if (Math.abs(x) > R || Math.abs(y) > R) return '';
+    const right = x < 6;
+    return `<circle class="pt" cx="${X(x)}" cy="${Y(y)}" r="5.5"/>` +
+      (label ? `<text class="ptlabel" x="${X(x) + (right ? 9 : -9)}" y="${Y(y) - 8}" text-anchor="${right ? 'start' : 'end'}">${label}</text>` : '');
+  }
+  const pt = (x, y) => `(${num(+x.toFixed(2))}, ${num(+y.toFixed(2))})`;
+
+  // ---------- EXPLORE ----------
+  let kind = 'lin';
+  const P = { m: 1, c: 2, a: 1, b: -2, qc: -3 };
+  const SL = {
+    lin: [['m', 'Gradient m', -5, 5, 0.5], ['c', 'y-intercept c', -8, 8, 1]],
+    quad: [['a', 'a', -3, 3, 0.5], ['b', 'b', -8, 8, 1], ['qc', 'c', -9, 9, 1]]
+  };
+  function buildSliders() {
+    $('sliders').innerHTML = SL[kind].map(([k, label, min, max, step]) =>
+      `<div class="slider"><label for="s_${k}"><span>${label}</span><span id="v_${k}">${num(P[k])}</span></label>
+       <input type="range" id="s_${k}" min="${min}" max="${max}" step="${step}" value="${P[k]}" data-k="${k}"></div>`).join('');
+  }
+  $('sliders').addEventListener('input', (e) => {
+    const k = e.target.dataset.k; if (!k) return;
+    P[k] = parseFloat(e.target.value); drawExplore();
+  });
+  function drawExplore() {
+    SL[kind].forEach(([k]) => { const v = $('v_' + k); if (v) v.textContent = num(P[k]); });
+    let svg = axes(), facts = [], tip;
+    if (kind === 'lin') {
+      const { m, c } = P;
+      svg += curve((x) => m * x + c) + point(0, c, `(0, ${num(c)})`);
+      if (m !== 0) { const r = -c / m; svg += point(r, 0, pt(r, 0)); }
+      $('eeq').textContent = linEq(m, c);
+      facts.push(`<b>Gradient:</b> ${num(m)}. ${m > 0 ? 'Uphill ↗' : m < 0 ? 'Downhill ↘' : 'Flat (horizontal)'}`);
+      facts.push(`<b>y-intercept:</b> crosses the y-axis at (0, ${num(c)})`);
+      facts.push(m !== 0 ? `<b>x-intercept:</b> y = 0 when x = ${num(+(-c / m).toFixed(2))}` : `<b>x-intercept:</b> ${c === 0 ? 'it is the x-axis!' : 'never crosses (parallel to x-axis)'}`);
+      tip = '<b>Exam tip:</b> Gradient = change in y ÷ change in x. Parallel lines have the same gradient. Try moving only c and watch the line slide up and down.';
+    } else {
+      const { a, b, qc } = P, c = qc;
+      svg += curve((x) => a * x * x + b * x + c) + point(0, c, `(0, ${num(c)})`);
+      $('eeq').textContent = quadEq(a, b, c);
+      if (a !== 0) {
+        const tx = -b / (2 * a), ty = c - b * b / (4 * a);
+        svg += point(tx, ty, 'TP ' + pt(tx, ty));
+        const disc = b * b - 4 * a * c;
+        if (disc > 0) {
+          const r1 = (-b - Math.sqrt(disc)) / (2 * a), r2 = (-b + Math.sqrt(disc)) / (2 * a);
+          svg += point(r1, 0) + point(r2, 0);
+          facts.push(`<b>Roots:</b> x = ${num(+Math.min(r1, r2).toFixed(2))} and x = ${num(+Math.max(r1, r2).toFixed(2))}`);
+        } else if (disc === 0) { facts.push(`<b>Roots:</b> one repeated root at x = ${num(+tx.toFixed(2))}`); }
+        else facts.push(`<b>Roots:</b> none, the curve never crosses the x-axis`);
+        facts.push(`<b>Turning point:</b> ${pt(tx, ty)}, a ${a > 0 ? 'minimum (∪ shape)' : 'maximum (∩ shape)'}`);
+        facts.push(`<b>Line of symmetry:</b> x = ${num(+tx.toFixed(2))}`);
+      } else facts.push('<b>a = 0</b>, so it is not a quadratic any more: it is a straight line!');
+      facts.push(`<b>y-intercept:</b> (0, ${num(c)}). It's always the value of c`);
+      tip = '<b>Exam tip:</b> Positive a gives a ∪ (smile), negative a gives a ∩. The roots are where the curve crosses the x-axis, and they are the solutions of ax² + bx + c = 0.';
+    }
+    $('eplot').innerHTML = svg;
+    $('efacts').innerHTML = facts.map((f) => `<div>${f}</div>`).join('');
+    $('etip').innerHTML = tip;
+  }
+  document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+    kind = b.dataset.kind;
+    document.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x === b));
+    buildSliders(); drawExplore();
+  }));
+
+  // ---------- CHALLENGE ----------
+  const { rand, pick, shuffle } = GCSE;
+  function uniqueOptions(correct, distractors, n) {
+    const out = [correct];
+    for (const d of shuffle(distractors)) { if (out.length >= n) break; if (!out.includes(d)) out.push(d); }
+    return shuffle(out);
+  }
+  const GENS = [
+    function linMatch() {
+      const m = pick([-3, -2, -1, -0.5, 0.5, 1, 2, 3]), c = rand(-6, 6);
+      const ds = [linEq(-m, c), linEq(m, -c), linEq(m * 2, c), linEq(m, c + 2), linEq(m, c - 3), linEq(-m, -c)];
+      if (c !== 0 && c !== m && Math.abs(c) <= 3) ds.push(linEq(c, m));
+      return { topic: 'graphs-linear', label: 'Straight-line graphs', kind: 'Match the graph', q: 'Which equation is this line?',
+        f: (x) => m * x + c, pts: [[0, c]], answer: linEq(m, c), options: uniqueOptions(linEq(m, c), ds.filter((d) => d !== linEq(m, c)), 4),
+        why: `It crosses the y-axis at ${num(c)} (that's c) and goes ${m > 0 ? 'up' : 'down'} ${num(Math.abs(m))} for every 1 across (that's m).` };
+    },
+    function gradient() {
+      const m = pick([-4, -3, -2, -1, -0.5, 0.5, 1, 2, 3, 4]), c = rand(-5, 5);
+      const ans = num(m);
+      const ds = [num(-m), num(c === m || c === 0 ? m + 1 : c), num(m * 2), num(m === 0.5 || m === -0.5 ? m * 4 : m / 2)].filter((d) => d !== ans);
+      return { topic: 'graphs-linear', label: 'Straight-line graphs', kind: 'Gradient', q: 'What is the gradient of this line?',
+        f: (x) => m * x + c, pts: [[0, c], [2, c + 2 * m]], answer: ans, options: uniqueOptions(ans, ds.concat([num(m + 1), num(m - 1)]).filter((d) => d !== ans), 4),
+        why: `Pick two points: (0, ${num(c)}) and (2, ${num(c + 2 * m)}). Change in y ÷ change in x = ${num(2 * m)} ÷ 2 = ${ans}.` };
+    },
+    function quadMatch() {
+      let p = rand(-5, 5), q = rand(-5, 5);
+      if (p === -q) q = q + 1;
+      const b = -(p + q), c = p * q;
+      const ans = quadEq(1, b, c);
+      const ds = [quadEq(1, -b, c), quadEq(1, b, -c), quadEq(-1, -b, -c), quadEq(1, -b, -c), quadEq(1, b + 2, c)].filter((d) => d !== ans);
+      return { topic: 'graphs-quadratic', label: 'Quadratic graphs', kind: 'Match the graph', q: 'Which equation is this curve?',
+        f: (x) => x * x + b * x + c, pts: [[0, c], [p, 0], [q, 0]], answer: ans, options: uniqueOptions(ans, ds, 4),
+        why: `It crosses the y-axis at ${num(c)}, so c = ${num(c)}. The roots ${num(p)} and ${num(q)} give y = (x ${p < 0 ? '+' : '−'} ${Math.abs(p)})(x ${q < 0 ? '+' : '−'} ${Math.abs(q)}), which expands to ${ans}.` };
+    },
+    function roots() {
+      let p = rand(-6, 5), q = rand(p + 1, 6);
+      const b = -(p + q), c = p * q;
+      const fmtR = (r, s) => `x = ${num(r)} and x = ${num(s)}`;
+      const ans = fmtR(p, q);
+      const ds = [fmtR(-q, -p), fmtR(0, c), fmtR(p, q + 1), fmtR(p - 1, q)].filter((d) => d !== ans);
+      return { topic: 'graphs-quadratic', label: 'Quadratic graphs', kind: 'Roots', q: `Solve ${quadEq(1, b, c).slice(4)} = 0 using the graph.`,
+        f: (x) => x * x + b * x + c, pts: [], answer: ans, options: uniqueOptions(ans, ds, 4),
+        why: `The solutions are where the curve crosses the x-axis (y = 0): x = ${num(p)} and x = ${num(q)}.` };
+    },
+    function turning() {
+      const h = rand(-4, 4), k = rand(-6, 4), a = pick([1, -1]);
+      const ans = `(${num(h)}, ${num(k)})`;
+      const ds = [`(${num(-h)}, ${num(k)})`, `(${num(k)}, ${num(h)})`, `(${num(h)}, ${num(-k)})`, `(${num(h + 1)}, ${num(k)})`, `(0, ${num(a * h * h + k)})`].filter((d) => d !== ans);
+      return { topic: 'graphs-quadratic', label: 'Quadratic graphs', kind: 'Turning point', q: `What are the coordinates of the turning point? Is it a max or a min?`,
+        f: (x) => a * (x - h) * (x - h) + k, pts: [], answer: ans, options: uniqueOptions(ans, ds, 4), extra: a > 0 ? 'minimum' : 'maximum',
+        why: `The turning point is the very ${a > 0 ? 'bottom' : 'top'} of the curve, at ${ans}. It's a ${a > 0 ? 'minimum' : 'maximum'} because the curve is ${a > 0 ? '∪' : '∩'}-shaped.` };
+    },
+    function intercept() {
+      const m = pick([-2, -1, 1, 2, 3, 0.5]), c = rand(-7, 7);
+      const ans = `(0, ${num(c)})`;
+      const ds = [`(${num(c)}, 0)`, `(0, ${num(-c)})`, `(0, ${num(m)})`, `(0, ${num(c + 1)})`].filter((d) => d !== ans);
+      return { topic: 'graphs-linear', label: 'Straight-line graphs', kind: 'Intercept', q: 'Where does this line cross the y-axis?',
+        f: (x) => m * x + c, pts: [], answer: ans, options: uniqueOptions(ans, ds, 4),
+        why: `The y-intercept is where x = 0. Read up the y-axis: ${ans}. In y = mx + c it's the value of c.` };
+    }
+  ];
+
+  let cg = null;
+  function renderCStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('ctargets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+  }
+  function cStart() {
+    // two of each type, with weaker topics favoured
+    const order = shuffle(GENS.concat(GENS)).slice(0, 10);
+    cg = { i: 0, order, score: 0, correct: 0, xp: 0, mistakes: [] };
+    $('cstart').classList.add('hidden'); $('cgame').classList.remove('hidden');
+    cNext();
+  }
+  function cNext() {
+    if (cg.i >= cg.order.length) return cEnd();
+    const q = cg.q = cg.order[cg.i]();
+    cg.t0 = Date.now(); cg.locked = false;
+    $('cprog').textContent = `${cg.i + 1} / ${cg.order.length}`;
+    $('ckind').textContent = q.kind;
+    $('cq').textContent = q.q;
+    $('cplot').innerHTML = axes() + curve(q.f) + q.pts.map(([x, y]) => point(x, y)).join('');
+    $('cchoices').innerHTML = q.options.map((o) => `<button class="choice mathy">${o}</button>`).join('');
+    $('cfb').innerHTML = '';
+  }
+  $('cchoices').addEventListener('click', (e) => {
+    const b = e.target.closest('.choice'); if (!b || cg.locked) return;
+    cg.locked = true;
+    const q = cg.q, ok = b.textContent === q.answer;
+    const secs = (Date.now() - cg.t0) / 1000;
+    [...$('cchoices').children].forEach((c) => { c.disabled = true; if (c.textContent === q.answer) c.classList.add('correct'); });
+    GCSE.topic('maths.' + q.topic, q.label, ok);
+    if (ok) {
+      const bonus = Math.max(0, Math.round(10 - secs));
+      cg.score += 10 + bonus; cg.correct++; cg.xp += 3;
+      GCSE.sound('good');
+      $('cfb').innerHTML = `<div class="feedback good">Correct! +10${bonus ? ` and a +${bonus} speed bonus` : ''}${q.extra ? `. It's a <b>${q.extra}</b>.` : ''}</div>`;
+    } else {
+      b.classList.add('wrong'); GCSE.sound('bad');
+      $('cfb').innerHTML = `<div class="feedback bad">Not quite. The answer is ${q.answer}.<div class="why">${q.why}</div></div>`;
+      cg.mistakes.push({ q: q.q, a: q.answer, why: q.why });
+    }
+    $('cscore').textContent = cg.score;
+    $('cfb').insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:10px"><button class="btn" id="cnext">${cg.i + 1 < cg.order.length ? 'Next →' : 'Finish'}</button></div>`);
+    $('cnext').focus();
+    $('cnext').addEventListener('click', () => { cg.i++; cNext(); });
+  });
+  function cEnd() {
+    const done = cg;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: done.score, correct: done.correct, total: done.order.length, xp: done.xp, mistakes: done.mistakes,
+      onAgain: cStart });
+  }
+  $('cgo').addEventListener('click', cStart);
+
+  // ---------- tabs ----------
+  document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
+    $('explore').classList.toggle('hidden', b.dataset.tab !== 'explore');
+    $('challenge').classList.toggle('hidden', b.dataset.tab !== 'challenge');
+    if (b.dataset.tab === 'challenge') { renderCStart(); }
+  }));
+
+  buildSliders(); drawExplore(); renderCStart();
+})();
+</script>
+</body>
+</html>

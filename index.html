@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GCSE Revision Hub</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .hero { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+  .ring { width: 92px; height: 92px; }
+  .ring circle { fill: none; stroke-width: 10; }
+  .ring .bg { stroke: var(--surface-2); }
+  .ring .fg { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .6s; }
+  .ring text { fill: var(--text); font-weight: 900; font-size: 26px; text-anchor: middle; dominant-baseline: central; }
+  .subjects { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+  .subject { border-top: 6px solid var(--c); margin: 0; }
+  .subject h2 { display: flex; align-items: center; gap: 8px; }
+  .subject .lvl { margin-left: auto; font-size: .8rem; background: var(--surface-2); border-radius: 999px; padding: 3px 9px; }
+  .bar { height: 6px; background: var(--surface-2); border-radius: 9px; overflow: hidden; margin: 6px 0 12px; }
+  .bar > div { height: 100%; background: var(--c); }
+  .aid { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); padding: 10px; border-radius: 12px; background: var(--surface-2); margin-bottom: 8px; transition: transform .1s; }
+  .aid:hover { transform: translateX(3px); }
+  .aid .ico { font-size: 1.5rem; width: 34px; text-align: center; }
+  .aid b { display: block; }
+  .aid .pb { margin-left: auto; font-size: .78rem; font-weight: 800; color: var(--muted); white-space: nowrap; }
+  .soon { opacity: .6; }
+  .weak li { margin-bottom: 4px; }
+  .tips { display: grid; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="card hero">
+    <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="bg" cx="50" cy="50" r="42"/>
+      <circle class="fg" id="ringfg" cx="50" cy="50" r="42" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+      <text x="50" y="50" id="ringlvl">1</text>
+    </svg>
+    <div>
+      <div class="kicker" style="color:var(--accent)">GCSE Revision · Exams summer 2027</div>
+      <h1 style="margin:2px 0 6px">Your revision hub</h1>
+      <div class="row">
+        <span class="chip" id="totalxp">0 XP</span>
+        <span class="chip" id="streak">🔥 0-day streak</span>
+        <span class="chip" id="due">📅 0 due today</span>
+        <span class="chip" id="countdown"></span>
+      </div>
+    </div>
+  </header>
+
+  <section class="card" id="focus">
+    <h2>🎯 Today's focus</h2>
+    <div id="focusbody" class="muted">Play a few rounds and your weakest topics will show up here.</div>
+  </section>
+
+  <section class="subjects" id="subjects"></section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>How to get the most out of this</h2>
+    <div class="tips small">
+      <div class="tip"><b>Little and often:</b> two or three 5-minute rounds a day beat one long session. Keep the streak going.</div>
+      <div class="tip"><b>Mistakes are good:</b> anything you get wrong comes back sooner until you've nailed it. Answer correctly on the first try for a revenge bonus.</div>
+      <div class="tip"><b>Beat yourself:</b> each aid remembers your last score and your best. Try to beat yesterday.</div>
+    </div>
+    <p class="small muted" style="margin-top:12px">Progress is saved in this browser on this device only. <button class="iconbtn small" id="reset">Reset progress</button></p>
+  </section>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  const SUBJECTS = [
+    { id: 'maths', board: 'Edexcel', name: 'Maths', icon: '📐', color: 'var(--maths)', aids: [
+      { id: 'maths.ninja', href: 'maths/number-ninja.html', icon: '🥷', name: 'Number Ninja', desc: '2-minute blitz with endless questions' },
+      { id: 'maths.graphlab', href: 'maths/graph-lab.html', icon: '📈', name: 'Graph Lab', desc: 'Play with graphs, then match them' }
+    ]},
+    { id: 'science', board: 'AQA Triple', name: 'Science', icon: '🔬', color: 'var(--science)', aids: [
+      { id: 'science.labelit', href: 'science/label-it.html', icon: '🦠', name: 'Label It: Cells', desc: 'Drag labels onto cell diagrams' },
+      { id: 'science.balancer', href: 'science/equation-balancer.html', icon: '⚖️', name: 'Equation Balancer', desc: 'Balance chemical equations' },
+      { id: 'science.blitz', href: 'science/science-blitz.html', icon: '⚡', name: 'Science Blitz', desc: '90-second key-terms sprint: Bio, Chem, Phys' },
+      { id: 'science.calcgym', href: 'science/calc-gym.html', icon: '🧮', name: 'Physics Calc Gym', desc: 'Endless calculations with all 23 equations' },
+      { id: 'science.practicals', href: 'science/practicals.html', icon: '🧪', name: 'Required Practicals', desc: 'Methods, variables and "why do we…?"' }
+    ]},
+    { id: 'english', board: 'AQA', name: 'English', icon: '📚', color: 'var(--english)', aids: [
+      { id: 'english.quotes', href: 'english/quote-hunter.html', icon: '🔎', name: 'Quote Hunter', desc: 'Macbeth, A Christmas Carol and poetry quotes' },
+      { id: 'english.know', href: 'english/know-your-texts.html', icon: '🧠', name: 'Know Your Texts', desc: 'Power and Conflict poems and Leave Taking' }
+    ]},
+    { id: 'spanish', board: 'AQA', name: 'Spanish', icon: '🇪🇸', color: 'var(--spanish)', aids: [
+      { id: 'spanish.vocab', href: 'spanish/vocab-blitz.html', icon: '⚡', name: 'Vocab Blitz', desc: '90-second word sprint, with listening' },
+      { id: 'spanish.verbs', href: 'spanish/verb-gym.html', icon: '🏋️', name: 'Verb Gym', desc: 'Conjugate verbs across the GCSE tenses' }
+    ]},
+    { id: 'history', board: 'Edexcel', name: 'History', icon: '🏰', color: 'var(--humanities)', aids: [
+      { id: 'history.timeline', href: 'history/timeline-dash.html', icon: '⏳', name: 'Timeline Dash', desc: 'Medicine, the American West, Richard & John' }
+    ]}
+  ];
+
+  function render() {
+    const s = GCSE.state;
+    const L = GCSE.levelInfo(s.xp);
+    document.getElementById('ringlvl').textContent = L.level;
+    document.getElementById('ringfg').setAttribute('stroke-dashoffset', 263.9 * (1 - L.pct));
+    document.getElementById('totalxp').textContent = `${s.xp} XP · Level ${L.level}`;
+    const st = GCSE.streak();
+    document.getElementById('streak').textContent = `🔥 ${st}-day streak`;
+    document.getElementById('due').textContent = `📅 ${GCSE.dueCount()} due for review`;
+
+    // countdown to the start of the exam season (roughly mid-May)
+    const exam = new Date(2027, 4, 10);
+    const days = Math.ceil((exam - new Date()) / 86400000);
+    document.getElementById('countdown').textContent = days > 0 ? `⏳ ~${days} days to exams` : '📝 Exam season';
+
+    const host = document.getElementById('subjects');
+    host.innerHTML = '';
+    SUBJECTS.forEach((sub) => {
+      const xp = s.subjects[sub.id] || 0, li = GCSE.levelInfo(xp);
+      const card = GCSE.el('article', { class: 'card subject' + (sub.soon ? ' soon' : '') });
+      card.style.setProperty('--c', sub.color);
+      card.innerHTML = `
+        <h2>${sub.icon} ${sub.name}${sub.board ? ` <span class="small muted" style="font-weight:700">${sub.board}</span>` : ''}${sub.soon ? '' : `<span class="lvl">Lv ${li.level}</span>`}</h2>
+        ${sub.soon ? `<p class="muted small">${sub.soon}</p>` : `<div class="bar"><div style="width:${Math.round(li.pct * 100)}%"></div></div>`}
+        ${sub.aids.map((a) => {
+          const pb = GCSE.bestScore(a.id);
+          return `<a class="aid" href="${a.href}"><span class="ico">${a.icon}</span><span><b>${a.name}</b><span class="small muted">${a.desc}</span></span><span class="pb">${pb ? '🏆 ' + pb : 'New'}</span></a>`;
+        }).join('')}`;
+      host.appendChild(card);
+    });
+
+    const weak = GCSE.weakTopics(null, 5);
+    const fb = document.getElementById('focusbody');
+    if (weak.length) {
+      fb.className = '';
+      fb.innerHTML = `<p class="small muted" style="margin-top:0">Your weakest areas from recent rounds:</p><ul class="weak">${weak.map((w) =>
+        `<li><b>${GCSE.esc(w.label)}</b> <span class="muted small">(${Math.round(w.acc * 100)}% recently)</span></li>`).join('')}</ul>`;
+    } else if (s.rounds > 0) {
+      fb.className = '';
+      fb.innerHTML = `<p style="margin:0">Nothing weak showing yet. Nice! Try a subject you haven't played today.</p>`;
+    }
+  }
+
+  document.getElementById('reset').addEventListener('click', () => {
+    if (confirm('Reset all XP, streaks, best scores and review history on this device?')) {
+      try { localStorage.removeItem('gcse-revision-v1'); } catch (e) {}
+      location.reload();
+    }
+  });
+  GCSE.onChange(render);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocab Blitz</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .word { font-size: 2rem; font-weight: 900; text-align: center; margin: 10px 0 4px; }
+  .word.es { color: var(--subj); }
+  .sub { text-align: center; margin-bottom: 14px; }
+  .say { border: 0; background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+  .big-say { display: block; margin: 12px auto 16px; font-size: 3rem; width: 110px; height: 110px; border-radius: 50%; border: 0; background: var(--subj); color: #fff; cursor: pointer; }
+  .gender { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .gender .choice { text-align: center; font-size: 1.6rem; font-weight: 900; min-height: 80px; }
+  .combo { font-weight: 900; color: var(--subj); }
+</style>
+</head>
+<body data-subject="spanish">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">Spanish · Vocabulary</div>
+    <h1>⚡ Vocab Blitz</h1>
+    <p>90 seconds, as many words as you can. The questions mix up <b>Spanish → English</b>, <b>English → Spanish</b>, <b>listening</b> and <b>el or la?</b>. Words you know well switch to <b>type it</b>, so you have to remember them, not just recognise them. Get 3 in a row for a combo multiplier.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Theme</h3>
+    <div class="pills" id="themes"></div>
+    <div style="margin-top:12px" id="speak"></div>
+    <div style="margin-top:14px"><button class="btn block" id="go">Start ▶</button></div>
+  </section>
+
+  <section id="game" class="hidden card">
+    <div class="hud">
+      <span class="chip">⏱ <span id="time">90</span>s</span>
+      <span class="chip combo" id="combo"></span>
+      <span class="spacer"></span>
+      <span class="chip">⭐ <span id="score">0</span></span>
+    </div>
+    <div class="timerbar" id="tbar"><div></div></div>
+    <div class="kicker" id="kind"></div>
+    <div id="body"></div>
+    <div id="fb"></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../content/spanish.js"></script>
+<script src="es-common.js"></script>
+<script>
+(function () {
+  const AID = 'spanish.vocab', SUBJ = 'spanish', SECS = 90;
+  GCSE.mountHeader({ subject: SUBJ, title: 'Vocab Blitz' });
+  const $ = (id) => document.getElementById(id);
+  const { esc, shuffle, pick } = GCSE;
+  const THEMES = window.SPANISH_VOCAB, TRAPS = window.SPANISH_GENDER_TRAPS || {};
+
+  // flatten words
+  const slug = (s) => ES_noAcc(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  function ES_noAcc(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  const WORDS = [];
+  THEMES.forEach((t) => t.words.forEach(([es, en]) => WORDS.push({ es, en, theme: t, id: `es.voc.${slug(es)}` })));
+  const byId = Object.fromEntries(WORDS.map((w) => [w.id, w]));
+  const article = (w) => (w.es.match(/^(el|la) (.+)$/) || null); // singular nouns only
+  const bare = (s) => s.replace(/^(el|la|los|las) /, '');
+
+  let themeId = 'all', g = null;
+
+  function renderStart() {
+    const best = GCSE.bestScore(AID), last = GCSE.lastDayScore(AID);
+    $('targets').innerHTML = `<span class="chip">🏆 Best: ${best || '-'}</span>` + (last ? `<span class="chip">🎯 Beat last time: ${last.score}</span>` : '');
+    const weakIds = new Set(GCSE.weakTopics('spanish.voc.', 10).map((w) => w.id));
+    const allDue = GCSE.dueCount(WORDS.map((w) => w.id));
+    $('themes').innerHTML = `<button class="pill ${themeId === 'all' ? 'on' : ''}" data-id="all">🎲 All themes${allDue ? ` · ${allDue} due` : ''}</button>` +
+      THEMES.map((t) => {
+        const due = GCSE.dueCount(t.words.map(([es]) => `es.voc.${slug(es)}`));
+        return `<button class="pill ${t.id === themeId ? 'on' : ''}" data-id="${t.id}">${t.icon} ${esc(t.name)}${due ? ` · ${due} due` : ''}${weakIds.has('spanish.voc.' + t.id) ? '<span class="tag">weak</span>' : ''}</button>`;
+      }).join('');
+    ES.speakToggle($('speak'));
+  }
+  $('themes').addEventListener('click', (e) => { const b = e.target.closest('.pill'); if (b) { themeId = b.dataset.id; renderStart(); } });
+
+  function pool() { return themeId === 'all' ? WORDS : WORDS.filter((w) => w.theme.id === themeId); }
+
+  function start() {
+    const ids = GCSE.pickItems(pool().map((w) => w.id), 60);
+    g = { queue: ids, i: 0, score: 0, correct: 0, total: 0, combo: 0, xp: 0, mistakes: [], busy: false, over: false };
+    $('start').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo(0, 0);
+    const bar = $('tbar');
+    g.timer = GCSE.timer(SECS, (left, frac) => {
+      $('time').textContent = Math.ceil(left);
+      bar.firstElementChild.style.width = (frac * 100) + '%';
+      bar.classList.toggle('low', left < 15);
+    }, end);
+    next();
+  }
+  const mult = () => Math.min(3, 1 + Math.floor(g.combo / 3));
+  function hud() {
+    $('score').textContent = g.score;
+    $('combo').textContent = mult() > 1 ? `🔥 ×${mult()} combo` : `combo ${g.combo % 3}/3`;
+  }
+
+  function next() {
+    if (g.over) return;
+    if (g.i >= g.queue.length) { g.queue = g.queue.concat(GCSE.pickItems(pool().map((w) => w.id), 60)); }
+    const w = byId[g.queue[g.i++]];
+    g.busy = false;
+    $('fb').innerHTML = '';
+    hud();
+    const b = GCSE.box(w.id);
+    const known = b && b.box >= 3;
+    const art = article(w);
+    const r = Math.random();
+    let type;
+    if (known && r < 0.6) type = 'type';
+    else if (art && r < 0.25) type = 'gender';
+    else if (ES.canSpeak() && ES.speakOn() && r < 0.45) type = 'listen';
+    else type = Math.random() < 0.5 ? 'es2en' : 'en2es';
+    ({ es2en, en2es, listen, gender, type: typeIt })[type](w);
+  }
+
+  function distractors(w, field) {
+    const same = shuffle(WORDS.filter((x) => x.theme === w.theme && x !== w && x[field] !== w[field]));
+    const other = shuffle(WORDS.filter((x) => x.theme !== w.theme && x[field] !== w[field]));
+    return same.concat(other).slice(0, 3).map((x) => x[field]);
+  }
+  function mcq(options, correct, onPick) {
+    $('body').insertAdjacentHTML('beforeend', `<div class="choices" id="mc">${options.map((o) => `<button class="choice" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div>`);
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || g.busy) return;
+      g.busy = true;
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.dataset.v === correct) c.classList.add('correct'); });
+      const ok = b.dataset.v === correct;
+      if (!ok) b.classList.add('wrong');
+      onPick(ok);
+    });
+  }
+  const sayBtn = (text) => `<button class="say" type="button" data-say="${esc(text)}">🔊 Hear it</button>`;
+  $('body').addEventListener('click', (e) => { const b = e.target.closest('[data-say]'); if (b) ES.say(b.dataset.say, true); });
+
+  // ---------- question types ----------
+  function es2en(w) {
+    $('kind').textContent = 'What does it mean?';
+    $('body').innerHTML = `<div class="word es">${esc(w.es)}</div><div class="sub">${ES.canSpeak() ? sayBtn(w.es) : ''}</div>`;
+    ES.say(w.es);
+    mcq(shuffle([w.en].concat(distractors(w, 'en'))), w.en, (ok) => answer(w, ok, 10, 'es2en'));
+  }
+  function en2es(w) {
+    $('kind').textContent = 'How do you say it in Spanish?';
+    $('body').innerHTML = `<div class="word">${esc(w.en)}</div><div class="sub muted small">${esc(w.theme.name)}</div>`;
+    mcq(shuffle([w.es].concat(distractors(w, 'es'))), w.es, (ok) => answer(w, ok, 10, 'en2es'));
+  }
+  function listen(w) {
+    $('kind').textContent = 'Listening · what did you hear?';
+    $('body').innerHTML = `<button class="big-say" type="button" data-say="${esc(w.es)}" aria-label="Play the word again">🔊</button><p class="small muted" style="text-align:center;margin-top:-6px">Tap to hear it again</p>`;
+    setTimeout(() => ES.say(w.es, true), 150);
+    mcq(shuffle([w.en].concat(distractors(w, 'en'))), w.en, (ok) => answer(w, ok, 12, 'listen'));
+  }
+  function gender(w) {
+    const [, art, noun] = article(w);
+    $('kind').textContent = 'el or la?';
+    $('body').innerHTML = `<div class="word es">___ ${esc(noun)}</div><div class="sub muted">(${esc(w.en)})</div><div class="gender" id="mc">
+      <button class="choice" data-v="el">el</button><button class="choice" data-v="la">la</button></div>`;
+    $('mc').addEventListener('click', (e) => {
+      const b = e.target.closest('.choice'); if (!b || g.busy) return;
+      g.busy = true;
+      [...$('mc').children].forEach((c) => { c.disabled = true; if (c.dataset.v === art) c.classList.add('correct'); });
+      const ok = b.dataset.v === art;
+      if (!ok) b.classList.add('wrong');
+      ES.say(w.es);
+      answer(w, ok, 8, 'gender', TRAPS[w.es]);
+    });
+  }
+  function typeIt(w) {
+    $('kind').textContent = 'Type it in Spanish';
+    $('body').innerHTML = `<div class="word">${esc(w.en)}</div><div class="sub muted small">You don't need to type el / la</div>
+      <form id="tf" class="row" style="flex-wrap:nowrap" autocomplete="off"><input class="answer" id="tin" placeholder="en español…" autocapitalize="off" autocorrect="off" spellcheck="false" lang="es"><button class="btn" style="flex:none">✓</button></form>`;
+    $('tf').after(ES.accentKeys($('tin')));
+    $('tin').focus();
+    $('tf').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = $('tin').value.trim();
+      if (g.busy || !v) return;
+      g.busy = true; $('tin').disabled = true;
+      const a = ES_noAcc(bare(v.toLowerCase())).replace(/[¿?¡!.,]/g, '').replace(/\s+/g, ' ').trim();
+      const target = bare(w.es.toLowerCase()).replace(/[¿?¡!]/g, '');
+      const t = ES_noAcc(target);
+      const exact = bare(v.toLowerCase()).replace(/[¿?¡!.,]/g, '').replace(/\s+/g, ' ').trim() === target;
+      const ok = a === t || (t.length >= 6 && GCSE.fuzzyEqual(a, t));
+      let note = '';
+      if (ok && !exact) note = a === t ? `Watch the accents: <b>${esc(w.es)}</b>` : `Close! Check the spelling: <b>${esc(w.es)}</b>`;
+      ES.say(w.es);
+      answer(w, ok, 15, 'type', note);
+    });
+  }
+
+  // ---------- scoring ----------
+  function answer(w, ok, base, kind, note) {
+    const revenge = ok && GCSE.wasWrong(w.id);
+    GCSE.grade(w.id, ok);
+    GCSE.topic('spanish.voc.' + w.theme.id, 'Spanish vocab: ' + w.theme.name, ok);
+    if (kind === 'gender') GCSE.topic('spanish.gender', 'Spanish: noun genders (el / la)', ok);
+    g.total++;
+    if (ok) {
+      g.combo++; g.correct++;
+      const pts = base * mult() + (revenge ? 5 : 0);
+      g.score += pts; g.xp += 2;
+      GCSE.sound('good');
+      $('fb').innerHTML = `<div class="feedback good">¡Correcto! +${pts}${revenge ? ' 💥 revenge bonus' : ''}<div class="why"><b>${esc(w.es)}</b> = ${esc(w.en)}${note ? `<br>${note}` : ''}</div></div>`;
+      hud();
+      setTimeout(next, note ? 1500 : 650);
+    } else {
+      g.combo = 0;
+      GCSE.sound('bad');
+      g.timer.pause();
+      $('fb').innerHTML = `<div class="feedback bad">Not quite. <b>${esc(w.es)}</b> = ${esc(w.en)}${note ? `<div class="why">${esc(note)}</div>` : ''}<div class="why small">The clock is paused. Say it out loud once before you move on.</div></div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="nx">Next →</button></div>`;
+      g.mistakes.push({ q: esc(w.en), a: esc(w.es), why: kind === 'gender' ? esc(TRAPS[w.es] || 'Learn nouns with their article.') : '' });
+      hud();
+      $('nx').focus();
+      $('nx').addEventListener('click', () => { g.timer.resume(); next(); });
+    }
+  }
+
+  function end() {
+    if (g.over) return;
+    g.over = true; g.busy = true;
+    GCSE.summary({ aid: AID, subject: SUBJ, score: g.score, correct: g.correct, total: g.total, xp: g.xp + 5, mistakes: g.mistakes,
+      onAgain: () => { renderStart(); start(); } });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!g || g.over) return;
+    const nx = $('nx');
+    if (e.key === 'Enter' && nx && document.activeElement !== nx) { nx.click(); e.preventDefault(); }
+    if (/^[1-4]$/.test(e.key) && $('mc') && document.activeElement.tagName !== 'INPUT') {
+      const c = $('mc').children[+e.key - 1]; c && c.click();
+    }
+  });
+
+  $('go').addEventListener('click', start);
+  renderStart();
+})();
+</script>
+</body>
+</html>
