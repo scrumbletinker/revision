@@ -48,9 +48,11 @@
     const redo = wrongParts().length;
     let html = '';
     if (mode === 'topic') {
-      html = Object.entries(X.papers).map(([pid, pname]) => {
-        const ts = Object.entries(X.topics).filter(([, t]) => String(t.paper) === pid);
-        return `<div class="small muted" style="margin:10px 0 6px;font-weight:800">${esc(pname)}</div><div class="pills">${ts.map(([id, t]) => {
+      const grouped = Object.values(X.topics).some((t) => t.paper);
+      const groups = grouped ? Object.entries(X.papers) : [['', '']];
+      html = groups.map(([pid, pname]) => {
+        const ts = Object.entries(X.topics).filter(([, t]) => !grouped || String(t.paper) === pid);
+        return `${pname ? `<div class="small muted" style="margin:10px 0 6px;font-weight:800">${esc(pname)}</div>` : '<div style="height:8px"></div>'}<div class="pills">${ts.map(([id, t]) => {
           const n = X.questions.filter((q) => q.topic === id).length;
           const acc = GCSE.topicAccuracy(`${X.subject}.exam.${id}`);
           return `<button class="pill ${topics.includes(id) ? 'on' : ''}" data-topic="${id}">${esc(t.name)} <span class="small">(${n})</span>${acc !== null && acc < 0.6 ? ' <span class="tag">weak</span>' : ''}</button>`;
@@ -58,7 +60,7 @@
       }).join('') + `<p class="small muted">3 questions from the topics you pick, about 25–30 marks.</p>`;
     } else if (mode === 'mock') {
       html = `<div class="pills" style="margin-top:8px">${Object.entries(X.papers).map(([pid, pname]) => `<button class="pill ${paperSel === pid ? 'on' : ''}" data-paper="${pid}">${esc(pname)}</button>`).join('')}</div>
-        <p class="small muted">About 40 marks in 45 minutes, mixing topics from that paper, like a shortened real paper. Work on paper as you would in the exam.</p>`;
+        <p class="small muted">${X.mockNote || 'About 40 marks in 45 minutes, mixing topics from that paper, like a shortened real paper. Work on paper as you would in the exam.'}</p>`;
     } else {
       html = `<p class="small muted" style="margin-top:8px">${redo ? `${redo} question${redo === 1 ? '' : 's'} with parts you dropped marks on. Get them right to clear them.` : 'Nothing to redo yet. Questions where you drop marks will appear here.'}</p>`;
     }
@@ -146,15 +148,19 @@
     showPart();
   }
 
-  function label(i) { return `${String(s.qi + 1).padStart(2, '0')}.${i + 1}`; }
+  function label(i) {
+    if (X.style === 'edexcel') return s.q.parts.length > 1 ? `${s.qi + 1}(${'abcdefgh'[i]})` : `${s.qi + 1}`;
+    return `${String(s.qi + 1).padStart(2, '0')}.${i + 1}`;
+  }
+  const marksTag = (m) => (X.style === 'edexcel' ? `(${m})` : `[${m} mark${m === 1 ? '' : 's'}]`);
 
   function showPart() {
     const q = s.q, i = s.pi, p = q.parts[i];
     const box = GCSE.el('div', { class: 'part', id: 'part' + i });
-    box.innerHTML = `${p.pre ? `<div class="pre">${p.pre}</div>` : ''}<div class="pq"><span class="plabel">${label(i)}</span><div class="ptext">${p.q}</div><span class="pmarks">[${p.marks} mark${p.marks === 1 ? '' : 's'}]</span></div><div class="pans"></div><div class="pfb"></div>`;
+    box.innerHTML = `${p.pre ? `<div class="pre">${p.pre}</div>` : ''}<div class="pq"><span class="plabel">${label(i)}</span><div class="ptext">${p.q}</div><span class="pmarks">${marksTag(p.marks)}</span></div><div class="pans"></div><div class="pfb"></div>`;
     $('parts').appendChild(box);
     const ans = box.querySelector('.pans');
-    ({ num: partNum, mcq: partMcq, multi: partMulti, text: partText, lor: partLor })[p.t](p, ans, box);
+    ({ num: partNum, nums: partNums, alg: partAlg, mcq: partMcq, multi: partMulti, text: partText, lor: partLor })[p.t](p, ans, box);
     if (i > 0) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -197,7 +203,8 @@
     let t = String(v).trim().replace(/,/g, '').replace(/\s+/g, '').replace(/[−–]/g, '-');
     t = t.replace(/(×|x|\*)10\^?/i, 'e').replace(/[a-zA-Zµμ°Ω/²³%]+$/, '');
     const n = Number(t);
-    return t === '' || !isFinite(n) ? NaN : n;
+    if (t !== '' && isFinite(n)) return n;
+    return window.ExamAlg ? ExamAlg.value(String(v).replace(/,/g, '')) : NaN;
   }
   function numOk(p, v) {
     if (isNaN(v)) return false;
@@ -205,10 +212,13 @@
     const tol = p.tol === undefined ? 0.02 : p.tol;
     return [p.answer].concat(p.alt || []).some((a) => Math.abs(v - a) <= Math.abs(a) * tol + 1e-12);
   }
+  // show answers with enough precision for the accuracy the question asks for, and £ before the number
+  const fmtP = (x, tol) => (tol !== undefined && tol < 0.001 ? String(Number(Number(x).toPrecision(9))) : fmt(x));
+  const withUnit = (txt, unit) => (unit === '£' ? `£${/\./.test(txt) ? Number(txt).toFixed(2) : txt}` : `${txt}${unit ? ' ' + unit : ''}`);
   const fmt = (x) => { const r = Number(Number(x).toPrecision(4)); return Math.abs(r) >= 1e6 || (Math.abs(r) < 1e-3 && r !== 0) ? r.toExponential(2).replace('e', ' × 10^').replace('+', '') : String(r); };
 
   function partNum(p, ans, box) {
-    ans.innerHTML = `<form class="ansrow" autocomplete="off"><input class="answer" inputmode="decimal" placeholder="Answer"><span class="unit">${p.unit || ''}</span><button class="btn" style="flex:none">✓</button></form>
+    ans.innerHTML = `<form class="ansrow" autocomplete="off">${p.unit === '£' ? '<span class="unit">£</span>' : ''}<input class="answer" inputmode="decimal" placeholder="Answer"><span class="unit">${p.unit && p.unit !== '£' ? p.unit : ''}</span><button class="btn" style="flex:none">✓</button></form>
       <div class="small muted" style="margin-top:6px">Standard form: type 3.2e5 or 3.2x10^5.</div>`;
     const f = ans.querySelector('form'), inp = ans.querySelector('input');
     if (s.pi > 0) inp.focus({ preventScroll: true }); else inp.focus();
@@ -218,20 +228,83 @@
       if (isNaN(v)) { GCSE.toast('Type a number'); return; }
       inp.disabled = true; f.querySelector('button').disabled = true;
       const work = `<b>Mark scheme</b><ul class="ms">${p.ms.map((m) => `<li>${m}</li>`).join('')}</ul>${p.working ? `<b>Working</b><ol class="work">${p.working.map((w) => `<li>${w}</li>`).join('')}</ol>` : ''}`;
-      const shown = p.range ? `${fmt(p.answer)} (anything from ${fmt(p.range[0])} to ${fmt(p.range[1])})` : fmt(p.answer);
+      const shown = p.show || (p.range ? `${withUnit(fmt(p.answer), p.unit)} (anything from ${fmt(p.range[0])} to ${fmt(p.range[1])})` : withUnit(fmtP(p.answer, p.tol), p.unit));
       if (numOk(p, v)) { award(p, box, p.marks, 'Correct!', work); return; }
-      if (p.marks === 1) { award(p, box, 0, `The answer is ${shown} ${p.unit || ''}.`, work); return; }
+      if (p.marks === 1) { award(p, box, 0, `The answer is ${shown}.`, work); return; }
       // wrong answer: let them claim method marks, like a real examiner would
       const methods = p.ms.filter((m) => !/^A\d/.test(m.replace(/<[^>]+>/g, '')));
       const cap = p.marks - 1;
-      box.querySelector('.pfb').innerHTML = `<div class="feedback bad">Not quite: the answer is <b>${shown} ${p.unit || ''}</b>.
+      box.querySelector('.pfb').innerHTML = `<div class="feedback bad">Not quite: the answer is <b>${shown}</b>.
         <div class="why">${work}<p style="margin:8px 0 4px"><b>Tick any method marks your working earned</b> (up to ${cap}):</p>
         <div class="points">${methods.map((m, n) => `<label><input type="checkbox" data-n="${n}"> <span>${m}</span></label>`).join('')}</div>
         <button class="btn" type="button" id="claim">Done</button></div></div>`;
       box.querySelector('#claim').addEventListener('click', () => {
         const ticks = box.querySelectorAll('.points input:checked').length;
-        award(p, box, Math.min(cap, ticks), `Answer: ${shown} ${p.unit || ''}. Method marks claimed.`, work);
+        award(p, box, Math.min(cap, ticks), `Answer: ${shown}. Method marks claimed.`, work);
       });
+    });
+  }
+
+
+  function msHtml(p) {
+    return `<b>Mark scheme</b><ul class="ms">${p.ms.map((m) => `<li>${m}</li>`).join('')}</ul>${p.working ? `<b>Working</b><ol class="work">${p.working.map((w) => `<li>${w}</li>`).join('')}</ol>` : ''}`;
+  }
+  function claimMethodMarks(p, box, shown, extra) {
+    const work = msHtml(p);
+    if (p.marks === 1) { award(p, box, 0, `The answer is ${shown}.${extra || ''}`, work); return; }
+    const methods = p.ms.filter((m) => !/^A\d/.test(m.replace(/<[^>]+>/g, '')));
+    const cap = p.marks - 1;
+    box.querySelector('.pfb').innerHTML = `<div class="feedback bad">Not quite: the answer is <b>${shown}</b>.${extra || ''}
+      <div class="why">${work}<p style="margin:8px 0 4px"><b>Tick any marks your working earned</b> (up to ${cap}):</p>
+      <div class="points">${methods.map((m, n) => `<label><input type="checkbox" data-n="${n}"> <span>${m}</span></label>`).join('')}</div>
+      <button class="btn" type="button" id="claim">Done</button></div></div>`;
+    box.querySelector('#claim').addEventListener('click', () => {
+      const ticks = box.querySelectorAll('.points input:checked').length;
+      award(p, box, Math.min(cap, ticks), `Answer: ${shown}. Marks claimed for working.`, work);
+    });
+  }
+
+  // several numeric answers, e.g. x = … and y = … (anyOrder for the two solutions of a quadratic)
+  function partNums(p, ans, box) {
+    ans.innerHTML = `<form autocomplete="off">${p.fields.map((f, n) => `<div class="ansrow" style="margin-bottom:8px"><span class="unit" style="min-width:2.6em">${f.l}</span><input class="answer" inputmode="decimal" data-n="${n}" placeholder="Answer"><span class="unit">${f.unit || ''}</span></div>`).join('')}
+      <button class="btn">✓ Check</button></form><div class="small muted" style="margin-top:6px">Fractions are fine: type 5/7.</div>`;
+    const f = ans.querySelector('form'), inps = [...ans.querySelectorAll('input')];
+    inps[0].focus({ preventScroll: s.pi > 0 });
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const vals = inps.map((i) => parseNum(i.value));
+      if (vals.some(isNaN)) { GCSE.toast('Fill in every answer with a number'); return; }
+      inps.forEach((i) => { i.disabled = true; }); f.querySelector('button').disabled = true;
+      const fieldOk = (fd, v) => numOk(fd, v);
+      let ok;
+      if (p.anyOrder) {
+        const left = p.fields.slice();
+        ok = vals.every((v) => { const k = left.findIndex((fd) => fieldOk(fd, v)); if (k < 0) return false; left.splice(k, 1); return true; });
+      } else ok = p.fields.every((fd, n) => fieldOk(fd, vals[n]));
+      const shown = p.fields.map((fd) => `${fd.l} ${fd.show || withUnit(fmtP(fd.answer, fd.tol), fd.unit)}`).join(', ');
+      if (ok) award(p, box, p.marks, 'Correct!', msHtml(p));
+      else claimMethodMarks(p, box, shown);
+    });
+  }
+
+  // an algebraic expression, checked by value at random points (so any equivalent form counts unless p.must says otherwise)
+  function partAlg(p, ans, box) {
+    ans.innerHTML = `<form class="ansrow" autocomplete="off">${p.prefix ? `<span class="unit">${p.prefix}</span>` : ''}<input class="answer" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. ${p.hint || '(x + 2)(x − 3)'}"><button class="btn" style="flex:none">✓</button></form>
+      <div class="small muted" style="margin-top:6px">Type x^2 for x², and use brackets. 2x(x − 3) works.</div>`;
+    const f = ans.querySelector('form'), inp = ans.querySelector('input');
+    inp.focus({ preventScroll: s.pi > 0 });
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      let txt = inp.value.trim();
+      if (!txt) return;
+      if (p.vars && !p.vars.length) txt = txt.replace(/(\d)\s*[xX]\s*(?=[\d√(])/g, '$1*'); // "2^3 x 3^2" means times when there are no variables
+      if (!ExamAlg.compile(txt)) { GCSE.toast("I can't read that. Check the brackets and use ^ for powers."); return; }
+      inp.disabled = true; f.querySelector('button').disabled = true;
+      const equal = ExamAlg.same(txt, p.fn, p.vars || ['x']);
+      const compact = txt.replace(/\s+/g, '').replace(/[−–]/g, '-').replace(/²/g, '^2').replace(/³/g, '^3').replace(/[×·]/g, '*');
+      const formOk = !p.must || p.must.test(compact);
+      if (equal && formOk) { award(p, box, p.marks, 'Correct!', msHtml(p)); return; }
+      claimMethodMarks(p, box, p.show, equal && !formOk ? `<br>Your answer is equal to it, but not in the form asked for: ${p.formMsg || 'check the question'}.` : '');
     });
   }
 

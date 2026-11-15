@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maths Exam Practice</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="../exam-styles.css">
+</head>
+<body data-subject="maths">
+<main class="wrap">
+  <section id="start" class="card">
+    <div class="kicker">Edexcel GCSE Maths (1MA1) · Higher tier style</div>
+    <h1>📝 Maths Exam Practice</h1>
+    <p>Exam-style questions laid out like Edexcel papers, with marks in brackets and Edexcel-style mark schemes (M1, A1, B1, P1). They're new questions. Work them out on paper, then type your answer. Algebra answers are checked properly, so any correct form counts unless the question asks for a particular one.</p>
+    <div class="row small" id="targets"></div>
+    <h3 style="margin-top:14px">Mode</h3>
+    <div class="pills" id="modes"></div>
+    <div id="opts"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn block" id="go">Start ▶</button>
+    </div>
+    <div class="row" style="margin-top:8px"><button class="btn secondary block hidden" id="sheetbtn" type="button">📄 Formulae sheet</button></div>
+  </section>
+
+  <section id="game" class="hidden">
+    <div class="card">
+      <div class="hud">
+        <span class="chip" id="prog"></span>
+        <span class="chip hidden" id="clock"></span>
+        <span class="spacer"></span>
+        <span class="chip">⭐ <span id="marks"></span></span>
+      </div>
+      <div id="qhead"></div>
+      <div id="intro" class="intro"></div>
+      <div id="parts"></div>
+    </div>
+    <div id="qnext"></div>
+    <div class="row" style="margin-top:10px"><button class="btn secondary" type="button" onclick="document.getElementById('sheetbtn').click()">📄 Formulae sheet</button></div>
+  </section>
+</main>
+
+<script src="../engine.js"></script>
+<script src="../exam-algebra.js"></script>
+<script src="../exam-figs.js"></script>
+<script src="../content/maths-exam-noncalc.js"></script>
+<script src="../content/maths-exam-calc.js"></script>
+<script>
+  window.EXAM = {
+    aid: 'maths.exam', subject: 'maths', title: 'Maths Exam Practice', prefix: 'mexam', style: 'edexcel',
+    papers: { 1: 'Non-calculator', 2: 'Calculator' },
+    mockNote: 'About 40 marks in 45 minutes, like half a real paper. Paper 1 is non-calculator: put the calculator away!',
+    topics: {
+      number: { name: 'Number' }, algebra: { name: 'Algebra' }, ratio: { name: 'Ratio, proportion & rates' },
+      geometry: { name: 'Geometry & measures' }, probstats: { name: 'Probability & statistics' }
+    },
+    questions: [].concat(window.MATHS_NC || [], window.MATHS_C || []),
+    sheet: `<div class="sheet"><h2 style="margin-top:0">Formulae sheet</h2>
+      <p class="small muted">Recent Edexcel exams have provided a formulae sheet like this. Check with his teacher whether it will be given in 2027. If not, these must be learned.</p>
+      <table>
+        <tr><td>Area of a trapezium</td><td>½(a + b)h</td></tr>
+        <tr><td>Volume of a prism</td><td>area of cross-section × length</td></tr>
+        <tr><td>Circle</td><td>circumference = 2πr = πd, area = πr²</td></tr>
+        <tr><td>Pythagoras</td><td>a² + b² = c²</td></tr>
+        <tr><td>Trigonometry</td><td>sin θ = opp ÷ hyp, cos θ = adj ÷ hyp, tan θ = opp ÷ adj</td></tr>
+        <tr><td>Quadratic formula</td><td>x = (−b ± √(b² − 4ac)) ÷ 2a</td></tr>
+        <tr><td>Sine rule</td><td>a ÷ sin A = b ÷ sin B = c ÷ sin C</td></tr>
+        <tr><td>Cosine rule</td><td>a² = b² + c² − 2bc cos A</td></tr>
+        <tr><td>Area of a triangle</td><td>½ab sin C</td></tr>
+        <tr><td>Sphere</td><td>volume = 4⁄3πr³, surface area = 4πr²</td></tr>
+        <tr><td>Cone</td><td>volume = ⅓πr²h, curved surface area = πrl</td></tr>
+        <tr><td>Pyramid</td><td>volume = ⅓ × area of base × h</td></tr>
+        <tr><td>Compound interest</td><td>P(1 + r⁄100)ⁿ</td></tr>
+        <tr><td>Probability</td><td>P(A or B) = P(A) + P(B) − P(A and B); P(A and B) = P(A given B) × P(B)</td></tr>
+        <tr><td>Kinematics</td><td>v = u + at, s = ut + ½at², v² = u² + 2as</td></tr>
+        <tr><td>Compound measures</td><td>speed = distance ÷ time, density = mass ÷ volume, pressure = force ÷ area</td></tr>
+      </table></div>`
+  };
+</script>
+<script src="../exam-engine.js"></script>
+</body>
+</html>
