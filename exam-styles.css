@@ -1,0 +1,52 @@
+/* Styles for exam-style practice pages (used with styles.css). */
+.part { border-top: 1px solid var(--surface-2); padding-top: 14px; margin-top: 14px; scroll-margin-top: 70px; }
+.part .pre { margin-bottom: 10px; }
+.pq { display: flex; gap: 10px; align-items: flex-start; }
+.plabel { flex: none; font-weight: 900; background: var(--surface-2); border-radius: 8px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+.ptext { flex: 1; font-weight: 600; line-height: 1.45; }
+.pmarks { flex: none; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.pans { margin-top: 10px; }
+.ansrow { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
+.ansrow .answer { flex: 1; min-width: 0; }
+.ansrow .unit { font-weight: 800; white-space: nowrap; }
+.choices.one { grid-template-columns: 1fr; }
+.choices .choice { text-align: left; }
+.ticks .choice { display: flex; gap: 10px; align-items: center; }
+.tickbox { flex: none; width: 22px; height: 22px; border: 2px solid var(--muted); border-radius: 5px; display: grid; place-items: center; }
+.ticks .choice.sel .tickbox { border-color: var(--subj); background: var(--subj); }
+.ticks .choice.sel .tickbox::after { content: '✓'; color: #fff; font-weight: 900; font-size: 15px; }
+.ticks .choice.sel { border-color: var(--subj); }
+.points label { display: flex; gap: 10px; align-items: flex-start; background: var(--surface-2); border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; cursor: pointer; font-weight: 400; }
+.points input { width: 22px; height: 22px; flex: none; accent-color: var(--subj); }
+.msbox { margin-top: 10px; background: var(--surface); border: 2px dashed var(--surface-2); border-radius: 12px; padding: 12px; }
+.ms { margin: 6px 0 10px; padding-left: 20px; }
+.ms li { margin-bottom: 4px; }
+.work { margin: 6px 0 0; padding-left: 20px; }
+.lvlbtns { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.lvlbtns .choice { text-align: center; padding: 10px 0; min-width: 0; }
+.lvlbtns .choice.sel { border-color: var(--subj); background: var(--subj); color: #fff; }
+.qsum { margin-top: 16px; text-align: center; }
+#clock.low { background: var(--bad); color: #fff; }
+.intro { line-height: 1.5; }
+.fg { margin: 10px 0; text-align: center; }
+.fg svg { width: 100%; max-width: 420px; height: auto; color: var(--text); }
+.fg figcaption { font-size: .85rem; color: var(--muted); margin-top: 4px; font-weight: 700; }
+.fg-grid { stroke: var(--muted); stroke-opacity: .35; stroke-width: 1; }
+.fg-axis { stroke: currentColor; stroke-width: 1.6; fill: none; }
+.fg-thick { stroke: currentColor; stroke-width: 4; }
+.fg-line { stroke: var(--subj); stroke-width: 2.6; stroke-linejoin: round; }
+.fg-dash { stroke-dasharray: 6 5; }
+.fg-x line { stroke: var(--subj); stroke-width: 2; }
+.fg-t { font-size: 10px; fill: var(--muted); font-family: inherit; }
+.fg-l { font-size: 11px; fill: currentColor; font-weight: 700; font-family: inherit; }
+.fg-sym { font-size: 13px; fill: currentColor; font-weight: 800; font-family: inherit; }
+.fg-comp { fill: var(--surface); stroke: currentColor; stroke-width: 1.6; }
+.fg-bg { fill: var(--surface); stroke: none; }
+.fg-dot { fill: currentColor; }
+.fg-fill { fill: var(--surface-2); stroke: currentColor; stroke-width: 1.4; }
+.fg-table { border-collapse: collapse; margin: 0 auto; font-size: .92rem; }
+.fg-table th, .fg-table td { border: 1px solid var(--muted); padding: 6px 10px; text-align: center; }
+.fg-table th { background: var(--surface-2); }
+.sheet table { width: 100%; border-collapse: collapse; }
+.sheet td { border-bottom: 1px solid var(--surface-2); padding: 6px 4px; vertical-align: top; }
+.sheet td:first-child { font-weight: 800; white-space: nowrap; }
